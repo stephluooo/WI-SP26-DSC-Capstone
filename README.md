@@ -1,14 +1,14 @@
 # Amazon Supplement Reviews + DSLD Label Data
 ## Overview
 
-We are building a dataset that connects **Amazon customer reviews** of dietary supplements with **official FDA/NIH label data** from the Dietary Supplement Label Database (DSLD). The goal is to enable analysis of how consumers perceive and describe supplement products relative to what is declared on the label -- ingredient accuracy, dosage expectations, adverse reactions, and brand trust.
+We are building a dataset that connects **Amazon customer reviews** of dietary supplements with **official FDA/NIH label data** from the Dietary Supplement Label Database (DSLD). The goal is to analyze consumer feedback relative to product labels -- such as ingredient accuracy, dosage expectations, adverse reactions, and brand trust.
 
 The **current database** is a single merged CSV where every row is an Amazon review joined to its corresponding DSLD label record (62 columns, ~16K rows, 1,647 unique products matched to 1,308 DSLD entries).
 
-## Next Steps
+## Next Steps (By Week 2)
 
-* Our **hypothesis** is that there is a relationship between features (ingredients, number of ingredients, brand name) and the average rating of the product. 
-* If we cannot discover any interesting relationships, then we intend to **join the CAERS side effect database** to our current database and investigate relationships between ingredients, side effects, and ratings.
+* Our **hypothesis** is that there is a relationship between features (ingredients, number of ingredients, brand name) and the average rating of the product. We intend to investigate this using methods including XGBoost (Karina) and neural net based regression (Liyun).
+* We also intend to **join the Human Food Complaint System (HFCS) side effect database** to our current database and investigate relationships between ingredients, side effects, and ratings (Michael).
 
 ---
 
