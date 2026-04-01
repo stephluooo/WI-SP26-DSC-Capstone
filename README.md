@@ -7,7 +7,7 @@ The **current database** is a single merged CSV where every row is an Amazon rev
 
 ## Next Steps
 
-* Our **hypothesis** is that there is a relationship between features such as the ingredients, number of ingredients, and the brand name and the average rating of the product. 
+* Our **hypothesis** is that there is a relationship between features (ingredients, number of ingredients, brand name) and the average rating of the product. 
 * If we cannot discover any interesting relationships, then we intend to **join the CAERS side effect database** to our current database and investigate relationships between ingredients, side effects, and ratings.
 
 ---
