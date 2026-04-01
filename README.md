@@ -1,4 +1,16 @@
 # Amazon Supplement Reviews + DSLD Label Data
+## Overview
+
+We are building a dataset that connects **Amazon customer reviews** of dietary supplements with **official FDA/NIH label data** from the Dietary Supplement Label Database (DSLD). The goal is to enable analysis of how consumers perceive and describe supplement products relative to what is declared on the label -- ingredient accuracy, dosage expectations, adverse reactions, and brand trust.
+
+The **current database** is a single merged CSV where every row is an Amazon review joined to its corresponding DSLD label record (62 columns, ~16K rows, 1,647 unique products matched to 1,308 DSLD entries).
+
+## Next Steps
+
+* Our **hypothesis** is that there is a relationship between features such as the ingredients, number of ingredients, and the brand name and the average rating of the product. 
+* If we cannot discover any interesting relationships, then we intend to **join the CAERS side effect database** to our current database and investigate relationships between ingredients, side effects, and ratings.
+
+---
 
 ## Data Files
 - Amazon Review 23' from McAuley Lab: https://amazon-reviews-2023.github.io/index.html
@@ -8,39 +20,6 @@
 ## Tools
 - Cursor
 - Github
-
-## Tasks and Division
-
-### Liyun Luo
-Done:
-- Searched for different datasets
-
-Goals:
-- EDA
-
-### Michael Kroyan
-Done:
-- Data Access
-- Data Cleaning
-- Entity Resolution
-- Merging Datasets
-
-Goals:
-- EDA
-- Consult on potential AWS use (Dask)
-
-### Karina Shah
-Done: 
-- Conducting EDA on the merged dataset to explore the data and find out what kind of questions would be interesting to ask. 
-
-Goals:
-- Make more exploratory charts and finish EDA so that we can narrow in on a question.
-
-## Overview
-
-We are building a dataset that connects **Amazon customer reviews** of dietary supplements with **official FDA/NIH label data** from the Dietary Supplement Label Database (DSLD). The goal is to enable analysis of how consumers perceive and describe supplement products relative to what is declared on the label -- ingredient accuracy, dosage expectations, adverse reactions, and brand trust.
-
-The core output is a single merged CSV where every row is an Amazon review joined to its corresponding DSLD label record (62 columns, ~16K rows, 1,647 unique products matched to 1,308 DSLD entries).
 
 ---
 
@@ -218,3 +197,29 @@ Prints the first 10 rows of the merged CSV with selected columns for quick inspe
 - **Timestamps** are Unix milliseconds. Divide by 1000 for standard epoch seconds.
 - The full dataset is stored via **Git LFS** as `data/amazon_dsld_merged.csv.zip`. Run `git lfs pull` after cloning to retrieve it.
 
+## Tasks and Division
+
+### Liyun Luo
+Done:
+- Searched for different datasets
+
+Goals:
+- EDA
+
+### Michael Kroyan
+Done:
+- Data Access
+- Data Cleaning
+- Entity Resolution
+- Merging Datasets
+
+Goals:
+- EDA
+- Consult on potential AWS use (Dask)
+
+### Karina Shah
+Done: 
+- Conducting EDA on the merged dataset to explore the data and find out what kind of questions would be interesting to ask. 
+
+Goals:
+- Make more exploratory charts and finish EDA so that we can narrow in on a question.
