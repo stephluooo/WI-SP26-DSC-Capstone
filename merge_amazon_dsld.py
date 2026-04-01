@@ -25,6 +25,83 @@ META_FILE = "meta_Health_and_Personal_Care.jsonl.gz"
 DSLD_ZIP = "DSLD-full-database-JSON.zip"
 
 # ============================================================================
+# Supplement pre-filter: keep only Amazon products that look like supplements
+# ============================================================================
+SUPPLEMENT_SIGNALS = re.compile(
+    r"\b("
+    r"supplement|vitamin|capsule|capsules|tablet|tablets|softgel|softgels|"
+    r"gummies|gummy|probiotic|probiotics|prebiotic|prebiotics|"
+    r"protein|collagen|omega|fish oil|cod liver oil|krill oil|flaxseed oil|"
+    r"turmeric|curcumin|ashwagandha|melatonin|elderberry|echinacea|"
+    r"ginseng|valerian|saw palmetto|milk thistle|st john|rhodiola|"
+    r"maca|moringa|spirulina|chlorella|astragalus|berberine|"
+    r"coq10|coenzyme|glucosamine|chondroitin|msm|"
+    r"biotin|folate|folic acid|niacin|riboflavin|thiamine|"
+    r"zinc|magnesium|calcium|iron|potassium|selenium|chromium|manganese|"
+    r"multivitamin|prenatal|postnatal|"
+    r"amino acid|bcaa|creatine|l glutamine|l carnitine|l arginine|l theanine|"
+    r"whey protein|pea protein|hemp protein|"
+    r"dietary supplement|herbal supplement|nutritional supplement|"
+    r"daily value|serving size|"
+    r"glycinate|citrate|oxide|threonate|taurate|chelat|picolinate|"
+    r"\d+\s*mg\b|\d+\s*mcg\b|\d+\s*iu\b"
+    r")\b",
+    re.IGNORECASE,
+)
+
+EXCLUDE_NONSUPPLEMENT = re.compile(
+    r"\b("
+    r"shampoo|conditioner|lotion|cream|moisturizer|sunscreen|"
+    r"soap|body wash|body butter|face wash|cleanser|toner|serum|"
+    r"deodorant|antiperspirant|perfume|cologne|fragrance|"
+    r"mascara|lipstick|lip gloss|lip balm|foundation|concealer|"
+    r"eye shadow|eyeshadow|eyeliner|blush|bronzer|makeup|cosmetic|"
+    r"nail polish|hair dye|hair color|hair spray|mousse|gel|pomade|"
+    r"detergent|laundry|fabric softener|dryer sheet|"
+    r"cleaner|cleaning|disinfectant|sanitizer|bleach|"
+    r"toothpaste|mouthwash|dental floss|tooth whitening|"
+    r"pillow|cushion|mattress|curtain|bedding|"
+    r"lint roller|sponge|mop|broom|"
+    r"candle|air freshener|incense|"
+    r"pet food|dog food|cat food|pet treat|"
+    r"diaper|baby wipe|"
+    r"bandage|band aid|gauze|first aid|"
+    r"contact lens|reading glasses|"
+    r"razor|shaving|electric shaver|"
+    r"curling iron|flat iron|hair dryer|blow dryer|"
+    r"massager|massage gun|tens unit|"
+    r"knee brace|ankle brace|wrist brace|back brace|"
+    r"compression sleeve|support brace|"
+    r"thermometer|blood pressure|stethoscope|"
+    r"wheelchair|crutch|walker|"
+    r"essential oil|diffuser|aromatherapy|"
+    r"bath bomb|bath salt|bubble bath|"
+    r"scrub|exfoli|peel|"
+    r"incontinence|adult underwear|"
+    r"cotton ball|cotton pad|cotton swab|q tip"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# DSLD product names too generic to be useful as standalone matches
+GENERIC_DSLD_NAMES = {
+    "professional", "complete", "essential", "essentials", "relaxation",
+    "ultimate", "euphoria", "charcoal", "lavender", "powerful", "strength",
+    "extra strength", "original", "natural", "premium", "advanced",
+    "formula", "complex", "support", "relief", "balance", "daily",
+    "energy", "recovery", "performance", "total", "pure", "basic",
+    "select", "choice", "classic", "gold", "silver", "platinum",
+    "men s", "women s", "for women", "for men", "for kids",
+    "skin beauty", "skin care", "hair skin nails", "hair gro",
+    "dark chocolate", "cookies cream", "vanilla", "chocolate",
+    "green yellow capsule", "magic wand", "cycle care",
+    "blood circulation", "pain management", "muscle relief",
+    "joint support", "women s support", "total hair",
+    "fit men", "oil of peppermint", "vegetable glycerin",
+    "100 natural e liquid", "essential oils",
+}
+
+# ============================================================================
 # Helpers
 # ============================================================================
 def find_file(name: str) -> Path:
@@ -59,6 +136,27 @@ def tokenize(s: str) -> set:
     return {w for w in s.split() if w not in stop and len(w) > 1}
 
 
+def is_supplement(title: str) -> bool:
+    """Return True if the Amazon product title looks like a dietary supplement."""
+    if not title:
+        return False
+    if EXCLUDE_NONSUPPLEMENT.search(title):
+        return False
+    if SUPPLEMENT_SIGNALS.search(title):
+        return True
+    return False
+
+
+def normalize_brand(brand: str) -> str:
+    """Extra normalization for brand names: strip suffixes, collapse variations."""
+    if not brand:
+        return ""
+    b = normalize(brand)
+    b = re.sub(r"\b(inc|llc|ltd|co|corp|corporation|company|laboratories|laboratory|labs|lab|international|intl|usa|us)\b", "", b)
+    b = re.sub(r"\s+", " ", b).strip()
+    return b
+
+
 # ============================================================================
 # Step 1: Load Amazon metadata → {parent_asin: record}
 # ============================================================================
@@ -78,8 +176,12 @@ def load_meta(filepath: Path) -> pd.DataFrame:
             })
     df = pd.DataFrame(rows)
     df["amazon_name_norm"] = df["amazon_title"].apply(normalize)
-    df["amazon_store_norm"] = df["amazon_store"].apply(normalize)
+    df["amazon_store_norm"] = df["amazon_store"].apply(normalize_brand)
     print(f"       {len(df):,} products loaded.", flush=True)
+
+    before = len(df)
+    df = df[df["amazon_title"].apply(is_supplement)].reset_index(drop=True)
+    print(f"       {len(df):,} products kept after supplement filter ({before - len(df):,} non-supplements removed).", flush=True)
     return df
 
 
@@ -316,7 +418,7 @@ def load_dsld_local(zip_path: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["dsld_name_norm"] = (df["dsld_brand_name"] + " " + df["dsld_full_name"]).apply(normalize)
     df["dsld_product_norm"] = df["dsld_full_name"].apply(normalize)
-    df["dsld_brand_norm"] = df["dsld_brand_name"].apply(normalize)
+    df["dsld_brand_norm"] = df["dsld_brand_name"].apply(normalize_brand)
     print(f"       {len(df):,} DSLD labels loaded.", flush=True)
     return df
 
@@ -326,13 +428,16 @@ def load_dsld_local(zip_path: str) -> pd.DataFrame:
 # ============================================================================
 def match_products(meta: pd.DataFrame, dsld: pd.DataFrame) -> pd.DataFrame:
     """
-    Multi-strategy matching:
-      A) Token-set overlap (order-independent): match if product-name tokens overlap
-         enough between Amazon title and DSLD product name.
-      B) Substring match: DSLD product name found inside Amazon title (or vice versa).
-      C) Brand + product: brand names match AND product-name tokens overlap.
+    Multi-strategy matching with brand enforcement:
+      A) Substring match: DSLD product name found inside Amazon title (or vice versa).
+      B) Token-set overlap: order-independent word overlap between names.
+      C) Brand alignment: brand match boosts score; brand mismatch penalizes.
 
-    Uses an inverted token index for speed (single-word lookups included).
+    Guards against hallucinated matches:
+      - Generic DSLD product names are blocked from standalone matching.
+      - DSLD names must have >= 2 meaningful tokens (or be long enough).
+      - Brand mismatch applies a heavy penalty.
+      - Minimum score threshold is 0.7.
     """
     from collections import defaultdict
 
@@ -341,9 +446,9 @@ def match_products(meta: pd.DataFrame, dsld: pd.DataFrame) -> pd.DataFrame:
     # ---- Build DSLD indexes ----
     print("       Building DSLD indexes...", flush=True)
 
-    # Inverted index: token -> set of dsld_ids
     token_to_dsld = defaultdict(set)
     dsld_info = {}  # dsld_id -> (product_norm, brand_norm, product_tokens)
+    skipped_generic = 0
 
     for _, row in dsld.iterrows():
         did = row["dsld_id"]
@@ -351,15 +456,40 @@ def match_products(meta: pd.DataFrame, dsld: pd.DataFrame) -> pd.DataFrame:
         bn = row["dsld_brand_norm"]
         if not pn or len(pn) < 3:
             continue
+        if pn in GENERIC_DSLD_NAMES:
+            skipped_generic += 1
+            continue
         ptokens = tokenize(pn)
+        if not ptokens:
+            continue
         dsld_info[did] = (pn, bn, ptokens)
         for tok in ptokens:
             token_to_dsld[tok].add(did)
 
-    print(f"       Index: {len(token_to_dsld):,} unique tokens from {len(dsld_info):,} DSLD products", flush=True)
+    print(f"       Index: {len(token_to_dsld):,} unique tokens from {len(dsld_info):,} DSLD products ({skipped_generic:,} generic names skipped)", flush=True)
+
+    # ---- Helper: check brand alignment ----
+    def brands_match(a_store_norm: str, a_title_norm: str, dsld_brand_norm: str) -> bool:
+        if not dsld_brand_norm:
+            return False
+        if a_store_norm and (dsld_brand_norm in a_store_norm or a_store_norm in dsld_brand_norm):
+            return True
+        if dsld_brand_norm and dsld_brand_norm in a_title_norm:
+            return True
+        return False
+
+    def brands_conflict(a_store_norm: str, dsld_brand_norm: str) -> bool:
+        """True if both sides have a brand name and they clearly don't match."""
+        if not a_store_norm or not dsld_brand_norm:
+            return False
+        if len(a_store_norm) < 3 or len(dsld_brand_norm) < 3:
+            return False
+        if dsld_brand_norm in a_store_norm or a_store_norm in dsld_brand_norm:
+            return False
+        return True
 
     # ---- Match each Amazon product ----
-    MIN_TOKEN_OVERLAP = 0.6  # 60% of DSLD product tokens must appear in Amazon title
+    MIN_SCORE = 0.7
     matches = []
     match_reasons = defaultdict(int)
     checked = 0
@@ -377,7 +507,6 @@ def match_products(meta: pd.DataFrame, dsld: pd.DataFrame) -> pd.DataFrame:
         if not a_title or len(a_title) < 5:
             continue
 
-        # Gather candidate DSLD IDs: any DSLD product sharing at least one token
         candidate_ids = set()
         for tok in a_tokens:
             if tok in token_to_dsld:
@@ -395,48 +524,46 @@ def match_products(meta: pd.DataFrame, dsld: pd.DataFrame) -> pd.DataFrame:
             if not ptokens:
                 continue
 
-            # Strategy A: Token-set overlap (order-independent)
+            # Require DSLD product to have >= 2 meaningful tokens unless it's
+            # a long specific name (>= 15 chars) to prevent single-word garbage
+            if len(ptokens) < 2 and len(pn) < 15:
+                continue
+
             overlap = a_tokens & ptokens
-            overlap_ratio = len(overlap) / len(ptokens)
+            overlap_ratio = len(overlap) / len(ptokens) if ptokens else 0
 
-            # Strategy B: Substring match (DSLD product name in Amazon title)
-            substring_match = (len(pn) >= 8 and pn in a_title) or (len(a_title) >= 15 and a_title in pn)
+            substring_match = (len(pn) >= 12 and pn in a_title) or (len(a_title) >= 20 and a_title in pn)
 
-            # Strategy C: Brand match boosts confidence
-            brand_match = False
-            if bn and a_store:
-                brand_match = bn in a_store or a_store in bn
-            if not brand_match and bn:
-                brand_match = bn in a_title
+            brand_match = brands_match(a_store, a_title, bn)
+            brand_conflict = brands_conflict(a_store, bn)
 
-            # Score the match
             score = 0.0
             reason = None
 
             if substring_match and brand_match:
                 score = 1.0
                 reason = "substring+brand"
-            elif substring_match and len(pn) >= 12:
+            elif substring_match and not brand_conflict and len(pn) >= 15:
                 score = 0.9
                 reason = "substring"
-            elif brand_match and overlap_ratio >= MIN_TOKEN_OVERLAP and len(ptokens) >= 2:
+            elif brand_match and overlap_ratio >= 0.6 and len(ptokens) >= 2:
                 score = 0.85
                 reason = "brand+token_overlap"
-            elif overlap_ratio >= 0.8 and len(ptokens) >= 2:
-                score = 0.7
+            elif overlap_ratio >= 0.8 and len(ptokens) >= 3 and not brand_conflict:
+                score = 0.75
                 reason = "high_token_overlap"
-            elif brand_match and overlap_ratio >= 0.5 and len(ptokens) == 1 and len(list(ptokens)[0]) >= 6:
-                score = 0.65
-                reason = "brand+single_token"
-            elif substring_match and len(pn) >= 8:
-                score = 0.6
-                reason = "short_substring"
+            elif substring_match and brand_match and len(pn) >= 8:
+                score = 0.75
+                reason = "short_substring+brand"
 
-            if score > best_score:
+            if brand_conflict and reason not in ("substring+brand",):
+                score *= 0.3
+
+            if score > best_score and score >= MIN_SCORE:
                 best_score = score
                 best_match = (did, reason)
 
-        if best_match and best_score >= 0.6:
+        if best_match:
             did, reason = best_match
             matches.append({"parent_asin": asin, "dsld_id": did, "match_score": best_score, "match_reason": reason})
             match_reasons[reason] += 1
@@ -495,12 +622,12 @@ def main():
     merged = build_merged(reviews, meta, dsld, matches)
 
     # Save as CSV (parquet requires pyarrow; install with `pip install pyarrow` if wanted)
-    merged.to_csv("amazon_dsld_merged.csv", index=False)
-    print(f"\nSaved: amazon_dsld_merged.csv")
+    merged.to_csv("data/amazon_dsld_merged.csv", index=False)
+    print(f"\nSaved: data/amazon_dsld_merged.csv")
 
     try:
-        merged.to_parquet("amazon_dsld_merged.parquet", index=False)
-        print(f"Saved: amazon_dsld_merged.parquet")
+        merged.to_parquet("data/amazon_dsld_merged.parquet", index=False)
+        print(f"Saved: data/amazon_dsld_merged.parquet")
     except ImportError:
         print("(Skipped parquet -- install pyarrow for parquet support)")
 
