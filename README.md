@@ -34,15 +34,22 @@ The **current database** is a single merged CSV where every row is an Amazon rev
 ├── sample_merged.py                   # Sampling + noise injection for validation
 ├── show_merged.py                     # Quick viewer for merged CSV
 ├── analyze_gaps.py                    # Match quality diagnostics
+├── cnn_rating_regression.py           # CNN regression: ingredients/brand → avg rating
 ├── .gitattributes                     # Git LFS tracking rules
-└── data/
-    ├── amazon_dsld_merged.csv.zip     # Full merged dataset (LFS, 17 MB zipped)
-    ├── amazon_dsld_merged_sample_1k.csv   # 1,000-row random sample
-    ├── amazon_dsld_merged_sample_10k.csv  # 10,000-row random sample
-    ├── amazon_dsld_sample_210.csv     # 210-row sample (200 real + 10 noise)
-    ├── iherb_best_selling_products_clean_dataset.csv
-    ├── meta_Health_and_Personal_Care.jsonl.gz  # Amazon product metadata (LFS)
-    └── DSLD-full-database-CSV/        # Raw DSLD bulk export (CSV format)
+├── data/
+│   ├── amazon_dsld_merged.csv.zip     # Full merged dataset (LFS, 17 MB zipped)
+│   ├── amazon_dsld_merged_sample_1k.csv   # 1,000-row random sample
+│   ├── amazon_dsld_merged_sample_10k.csv  # 10,000-row random sample
+│   ├── amazon_dsld_sample_210.csv     # 210-row sample (200 real + 10 noise)
+│   ├── iherb_best_selling_products_clean_dataset.csv
+│   ├── meta_Health_and_Personal_Care.jsonl.gz  # Amazon product metadata (LFS)
+│   └── DSLD-full-database-CSV/        # Raw DSLD bulk export (CSV format)
+└── results/
+    └── cnn_regression/
+        ├── metrics.json               # Final validation metrics (MAE, RMSE, R²)
+        ├── training_history.csv       # Per-epoch train/val loss and MAE
+        ├── val_predictions.csv        # Actual vs predicted ratings for val set
+        └── model.pt                   # Trained PyTorch model weights
 ```
 
 ---
@@ -83,6 +90,10 @@ Diagnostics script that inspects unmatched Amazon products to identify gaps in t
 ### `show_merged.py`
 
 Prints the first 10 rows of the merged CSV with selected columns for quick inspection.
+
+### `cnn_rating_regression.py`
+
+CNN-based regression pipeline that tests whether label features (ingredient names, ingredient count, brand name) predict a product's average Amazon rating. Deduplicates the 10K-row sample to unique products, builds a vocabulary from combined brand + ingredient text, and trains a 1D-CNN with an auxiliary numeric input (ingredient count). Outputs metrics, training history, predictions, and model weights to `results/cnn_regression/`.
 
 ---
 
@@ -190,6 +201,43 @@ Prints the first 10 rows of the merged CSV with selected columns for quick inspe
 
 ---
 
+## Analysis
+
+### CNN Regression: Ingredients & Brand → Average Rating
+
+**Hypothesis:** There is a relationship between label features (ingredient names, number of ingredients, brand name) and the average Amazon rating of a product.
+
+**Method:** A 1D Convolutional Neural Network (Conv1D) regression model trained on the `amazon_dsld_merged_sample_10k.csv` dataset (PyTorch). The pipeline:
+
+1. **Deduplicates** the 10K-row sample to **1,395 unique products** (one row per `parent_asin`, since `average_rating` is constant per product).
+2. **Constructs a text feature** by combining brand name and ingredient names into a single lowercase string (e.g., `"brand nature made ingredients l-lysine"`).
+3. **Tokenizes and encodes** the text into integer sequences (vocabulary size: ~1,800 tokens, max sequence length: 256).
+4. **Scales** ingredient count with a standard scaler as a separate numeric input.
+5. **Trains a CNN** with two Conv1D layers (128 → 64 filters, kernel size 5) over the embedded text, global max-pooled, concatenated with the ingredient count, and passed through dense layers to predict a single rating value.
+6. Uses **80/20 train/val split**, MSE loss, Adam optimizer (lr=1e-3), and **early stopping** (patience=4).
+
+**Results** (held-out 20% validation set, 280 products):
+
+| Metric | Value |
+|---|---|
+| MAE | 0.504 |
+| RMSE | 0.707 |
+| R² | −0.025 |
+| Naive baseline MAE (predict mean) | 0.509 |
+
+**Interpretation:** The CNN's MAE (0.504) is only marginally better than always predicting the mean rating (0.509), and R² ≈ 0 indicates that ingredient names, ingredient count, and brand name alone explain almost none of the variance in average product ratings. This is consistent with the understanding that consumer ratings are driven by many factors beyond label content — taste, shipping experience, expectations, price, and individual biology — that are not captured in DSLD label data. The result serves as a useful baseline showing that label-derived features alone are insufficient predictors of product satisfaction.
+
+Output files in `results/cnn_regression/`:
+
+| File | Description |
+|---|---|
+| `metrics.json` | Final validation MAE, RMSE, R², and naive baseline MAE |
+| `training_history.csv` | Per-epoch training MSE, validation MSE, and validation MAE |
+| `val_predictions.csv` | Actual vs predicted average ratings for every validation product |
+| `model.pt` | Trained PyTorch model weights |
+
+---
+
 ## Notes
 
 - **List columns** (`dsld_ingredient_names`, `dsld_claims`, etc.) are stored as Python list literals. Parse with `ast.literal_eval()`.
@@ -201,10 +249,11 @@ Prints the first 10 rows of the merged CSV with selected columns for quick inspe
 
 ### Liyun Luo
 Done:
-- Searched for different datasets
+- Searched for different database
+- EDA
 
 Goals:
-- EDA
+- CNN based rating regression on 10k sample datasets
 
 ### Michael Kroyan
 Done:
