@@ -17,6 +17,8 @@ The **current database** is a single merged CSV where every row is an Amazon rev
 
 * Update the hypothesis, e.g. there is a relationship between label features (ingredients, ingredient count, brand, product type) and reported side effects from the HFCS database.
 * Explore which specific ingredients or ingredient combinations are most associated with adverse events.
+* EDA on new merged dataset
+* Groups of product of similar adverse events, find correlations between events and ingredients
 
 ---
 
