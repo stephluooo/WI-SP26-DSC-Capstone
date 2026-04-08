@@ -16,6 +16,7 @@ The **current database** is a single merged CSV where every row is an Amazon rev
 - Amazon Review 23' from McAuley Lab: https://amazon-reviews-2023.github.io/index.html
 - iHerb: https://www.kaggle.com/datasets/crawlfeeds/iherb-products-dataset
 - DSLD: https://dsld.od.nih.gov/
+- FDA HFCS (adverse events): https://open.fda.gov/apis/food/event/
 
 ## Tools
 - Cursor
@@ -34,12 +35,15 @@ The **current database** is a single merged CSV where every row is an Amazon rev
 ├── sample_merged.py                   # Sampling + noise injection for validation
 ├── show_merged.py                     # Quick viewer for merged CSV
 ├── analyze_gaps.py                    # Match quality diagnostics
+├── merge_hfcs.py                      # HFCS adverse event merge pipeline
 ├── cnn_rating_regression.py           # CNN regression: ingredients/brand → avg rating
 ├── .gitattributes                     # Git LFS tracking rules
 ├── data/
 │   ├── amazon_dsld_merged.csv.zip     # Full merged dataset (LFS, 17 MB zipped)
 │   ├── amazon_dsld_merged_sample_1k.csv   # 1,000-row random sample
 │   ├── amazon_dsld_merged_sample_10k.csv  # 10,000-row random sample
+│   ├── amazon_dsld_hfcs_merged_sample_1k.csv   # 1K sample with HFCS columns
+│   ├── amazon_dsld_hfcs_merged_sample_10k.csv  # 10K sample with HFCS columns
 │   ├── amazon_dsld_sample_210.csv     # 210-row sample (200 real + 10 noise)
 │   ├── iherb_best_selling_products_clean_dataset.csv
 │   ├── meta_Health_and_Personal_Care.jsonl.gz  # Amazon product metadata (LFS)
@@ -90,6 +94,17 @@ Diagnostics script that inspects unmatched Amazon products to identify gaps in t
 ### `show_merged.py`
 
 Prints the first 10 rows of the merged CSV with selected columns for quick inspection.
+
+### `merge_hfcs.py`
+
+Pulls all FDA HFCS (Human Foods Complaint System) adverse event reports for dietary supplements via the OpenFDA API, aggregates them to product-level summaries, and joins them onto the existing Amazon-DSLD merged dataset. Runs in four steps:
+
+1. **Pull** ~53K adverse event records from OpenFDA (industry code 54, paginated with date-range windowing to bypass the 25K skip limit).
+2. **Flatten and aggregate** to product-level: for each unique product name, compute report count, reaction list with frequencies, outcome severity distribution (hospitalization, ER, death, etc.), max severity, average reporter age, and percent female.
+3. **Match** HFCS product names to existing merged products using normalized name matching with brand alignment (same strategy as the Amazon-DSLD merge).
+4. **Left-join** the HFCS summaries onto the merged CSV. Products with no HFCS reports get nulls (zero adverse events is itself informative).
+
+Result: 793 of 1,647 products matched (48%), adding 18 new HFCS columns. Output: `data/amazon_dsld_hfcs_merged.csv` (80 columns).
 
 ### `cnn_rating_regression.py`
 
@@ -199,6 +214,29 @@ CNN-based regression pipeline that tests whether label features (ingredient name
 | `dsld_percent_dv_footnote` | string | Daily value footnote text |
 | `dsld_has_outer_carton` | bool | Whether product has outer carton labeling |
 
+### HFCS Adverse Event Fields (in `amazon_dsld_hfcs_merged` only)
+
+| Column | Type | Description |
+|---|---|---|
+| `hfcs_product_norm` | string | Normalized HFCS product name that was matched |
+| `hfcs_report_count` | int | Total adverse event reports for this product (0 if unmatched) |
+| `hfcs_reaction_count` | int | Total individual reactions reported |
+| `hfcs_top_reactions` | JSON | Top 5 most frequent reactions (e.g., "choking", "nausea") |
+| `hfcs_all_reactions` | JSON | All reactions with counts (up to top 50) |
+| `hfcs_outcome_hospitalization` | int | Number of reports resulting in hospitalization |
+| `hfcs_outcome_er` | int | Number of reports with ER visits |
+| `hfcs_outcome_death` | int | Number of reports with death outcome |
+| `hfcs_outcome_life_threatening` | int | Number of life-threatening reports |
+| `hfcs_outcome_disability` | int | Number of reports with disability outcome |
+| `hfcs_max_severity` | string | Worst reported outcome (Death > Life Threatening > Hospitalization > ...) |
+| `hfcs_max_severity_score` | int | Numeric severity score (0--7) |
+| `hfcs_avg_consumer_age` | float | Mean age of adverse event reporters |
+| `hfcs_pct_female` | float | Percent of reporters who are female |
+| `hfcs_date_earliest` | string | Earliest report date (YYYYMMDD) |
+| `hfcs_date_latest` | string | Latest report date (YYYYMMDD) |
+| `hfcs_match_score` | float | Match confidence (0.7--1.0) |
+| `hfcs_match_reason` | string | Match method used |
+
 ---
 
 ## Analysis
@@ -261,6 +299,7 @@ Done:
 - Data Cleaning
 - Entity Resolution
 - Merging Datasets
+- HFCS adverse event integration (pulled 53K FDA reports, matched 793 products, added 18 side-effect/outcome columns)
 
 Goals:
 - EDA
