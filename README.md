@@ -5,10 +5,18 @@ We are building a dataset that connects **Amazon customer reviews** of dietary s
 
 The **current database** is a single merged CSV where every row is an Amazon review joined to its corresponding DSLD label record (62 columns, ~16K rows, 1,647 unique products matched to 1,308 DSLD entries).
 
-## Next Steps (By Week 2)
+## Progress
 
-* Our **hypothesis** is that there is a relationship between features (ingredients, number of ingredients, brand name) and the average rating of the product. We intend to investigate this using methods including XGBoost (Karina) and neural net based regression (Liyun).
-* We also intend to **join the Human Food Complaint System (HFCS) side effect database** to our current database and investigate relationships between ingredients, side effects, and ratings (Michael).
+* Our hypothesis: There is a relationship between label features (ingredients, number of ingredients, brand name) and the average Amazon rating of a product.
+* **Liyun** built a CNN-based regression pipeline to test this. The model achieved R² ≈ 0 (MAE 0.504 vs naive baseline 0.509), indicating that label features alone have near-zero predictive power for average ratings. See the [Analysis](#analysis) section below for full results.
+* **Michael** joined the **Human Food Complaint System (HFCS) side effect database** to the current dataset.
+* **Karina** is investigating the same hypothesis using XGBoost.
+
+
+## Next Steps
+
+* Update the hypothesis, e.g. there is a relationship between label features (ingredients, ingredient count, brand, product type) and reported side effects from the HFCS database.
+* Explore which specific ingredients or ingredient combinations are most associated with adverse events.
 
 ---
 
