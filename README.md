@@ -297,9 +297,10 @@ Output files in `results/cnn_regression/`:
 Done:
 - Searched for different database
 - EDA
+- Hypothesis tested using CNN based rating regression
 
 Goals:
-- CNN based rating regression on 10k sample datasets
+- Test updated hypothesis
 
 ### Michael Kroyan
 Done:
