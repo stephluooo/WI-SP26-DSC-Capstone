@@ -1,0 +1,192 @@
+ingredient_group,in_adverse_products,in_safe_products,adverse_rate
+Pregnenolone,3,0,1.0
+Vitamin K (unspecified),5,0,1.0
+Polyunsaturated Fat,3,0,1.0
+Garcinia,3,0,1.0
+Nickel,7,1,0.875
+Melatonin,7,1,0.875
+Green Coffee,6,1,0.857
+Tin,6,1,0.857
+Vitamin B1 (Thiamine),5,1,0.833
+Bacillus Coagulans,9,2,0.818
+St. John's Wort,4,1,0.8
+cranberry,7,2,0.778
+Boswellia,6,2,0.75
+Pumpkinseed Oil,3,1,0.75
+Fructo-Oligosaccharides (FOS),3,1,0.75
+Vitamin B2 (riboflavin 5-phosphate),3,1,0.75
+Mannose,3,1,0.75
+Vitamin K (Phylloquinone),3,1,0.75
+Passionflower,3,1,0.75
+Vitamin B5,17,6,0.739
+Vanadium,17,6,0.739
+5-HTP,5,2,0.714
+Phosphatidylserine,5,2,0.714
+Vitamin K,24,10,0.706
+Vitamin D (cholecalciferol),7,3,0.7
+Oriental Ginseng,11,5,0.688
+Krill Oil,13,6,0.684
+Iodine,56,26,0.683
+Eurycoma Longifolia,4,2,0.667
+Sugar,6,3,0.667
+Saturated fat,6,3,0.667
+"Blend (Metabolite, constituent, extract, isolate, or combination of these)",4,2,0.667
+Medium chain triglycerides (MCT),4,2,0.667
+Proprietary Blend (non-nutrient/non-botanical),6,3,0.667
+Fiber (unspecified),8,4,0.667
+Vitamin E (unspecified),6,3,0.667
+Chloride,17,9,0.654
+Chromium,60,33,0.645
+Hyaluronic acid,9,5,0.643
+Silicon,14,8,0.636
+Copper,52,30,0.634
+Molybdenum,41,24,0.631
+Pectin,5,3,0.625
+Lactobacillus acidophilus,5,3,0.625
+Thiamin,62,38,0.62
+Vitamin E,86,53,0.619
+Lutein,21,13,0.618
+Pantothenic Acid,8,5,0.615
+Manganese,55,35,0.611
+Pantothenic Acid (Vitamin B5),37,24,0.607
+Biotin,56,37,0.602
+Hericium mushroom,3,2,0.6
+Stevia,6,4,0.6
+Chondroitin Sulfate,6,4,0.6
+Valerian,3,2,0.6
+Vitamin C (unspecified),6,4,0.6
+Coenzyme Q10,3,2,0.6
+Maca,3,2,0.6
+Holy Basil,3,2,0.6
+Alpha-Lipoic Acid,3,2,0.6
+Niacin,71,48,0.597
+Selenium,68,47,0.591
+Inositol,23,16,0.59
+Zinc,100,70,0.588
+Boron,27,19,0.587
+Ginkgo,7,5,0.583
+Reishi mushroom,7,5,0.583
+Riboflavin,63,45,0.583
+Fish Oil,25,18,0.581
+Lycopene,11,8,0.579
+Apple Cider Vinegar,11,8,0.579
+Black Pepper,33,24,0.579
+Vitamin A,74,54,0.578
+Folate,60,44,0.577
+Vitamin B6,82,61,0.573
+Vitamin B5 (Pantothenic Acid),4,3,0.571
+Peppermint,4,3,0.571
+Proprietary Blend (Amino Acid/Protein),4,3,0.571
+Vitamin D,112,89,0.557
+Cinnamon,5,4,0.556
+Astaxanthin,5,4,0.556
+Ashwagandha,20,16,0.556
+EPA (Eicosapentaenoic Acid),5,4,0.556
+Omega-9,5,4,0.556
+Vitamin B2 (Riboflavin),5,4,0.556
+Goji,5,4,0.556
+Astragalus,5,4,0.556
+Cysteine,5,4,0.556
+Sour Cherry,5,4,0.556
+Vitamin B12,91,73,0.555
+Phosphorus,33,27,0.55
+GABA,7,6,0.538
+Omega-6,7,6,0.538
+Iron,78,67,0.538
+Resveratrol,8,7,0.533
+Theanine,8,7,0.533
+Glucosamine Hydrochloride,9,8,0.529
+Vitamin C,127,114,0.527
+Bromelain,10,9,0.526
+Protein (unspecified),64,58,0.525
+Magnesium,104,94,0.525
+Calcium,149,137,0.521
+Proprietary Blend (Combination),26,24,0.52
+Tyrosine,15,14,0.517
+Choline,25,24,0.51
+Mangosteen,4,4,0.5
+Papain,5,5,0.5
+Beet,5,5,0.5
+Arginine,5,5,0.5
+Flaxseed Oil,3,3,0.5
+Pomegranate,9,9,0.5
+Glucosamine Sulfate,7,7,0.5
+Acerola,5,5,0.5
+PABA,6,6,0.5
+Amylase,3,3,0.5
+Carbohydrate (unspecified),6,6,0.5
+Vinpocetine,4,4,0.5
+DHA (Docosahexaenoic Acid),5,5,0.5
+Lipase,4,4,0.5
+Vitamin D (unspecified),3,3,0.5
+Betaine Hydrochloride,5,5,0.5
+Flavonoid,3,3,0.5
+Carbohydrate,146,152,0.49
+Calories,207,219,0.486
+Sodium,128,137,0.483
+Potassium,78,86,0.476
+Methylsulfonylmethane,10,11,0.476
+Cholesterol,70,78,0.473
+Blend (Herb/Botanical),17,19,0.472
+Flavonoid (mixture),8,9,0.471
+Zeaxanthin,8,9,0.471
+Header,22,25,0.468
+Red Clover,7,8,0.467
+Blend (non-nutrient/non-botanical),14,16,0.467
+Blend,37,43,0.463
+Coenzyme Q-10,12,14,0.462
+Vitamin K (menaquinone),6,7,0.462
+Fat (unspecified),113,135,0.456
+Inulin,5,6,0.455
+Saw Palmetto,5,6,0.455
+Deanol,5,6,0.455
+Blend (Combination),29,36,0.446
+Acai,4,5,0.444
+Coffee,4,5,0.444
+Creatine,8,10,0.444
+Aloe,4,5,0.444
+Olive,11,14,0.44
+Turmeric,31,40,0.437
+Omega-3,17,22,0.436
+Milk Thistle,10,13,0.435
+Collagen,10,13,0.435
+Proprietary Blend (Herb/Botanical),15,20,0.429
+Noni,3,4,0.429
+Dog Rose,3,4,0.429
+Coleus,6,8,0.429
+Green Tea,14,19,0.424
+Vitamin B7 (biotin),5,7,0.417
+Collagen Peptides,5,7,0.417
+European Elder,7,10,0.412
+Quercetin,12,18,0.4
+Taurine,8,12,0.4
+Vitamin B9 (Folate),8,12,0.4
+Beta Sitosterol,4,6,0.4
+Eleuthero,4,6,0.4
+Proprietary Blend,30,45,0.4
+L-Carnitine,4,6,0.4
+Sulfur,4,6,0.4
+Grape,10,16,0.385
+Horsetail,3,5,0.375
+Cordyceps,3,5,0.375
+Rutin,3,5,0.375
+Caffeine,14,24,0.368
+Rhodiola,4,7,0.364
+Lysine,4,7,0.364
+Ascophyllum nodosum,4,7,0.364
+Blend (Fatty Acid or Fat/Oil Supplement),5,9,0.357
+Echinacea purpurea,7,13,0.35
+Garlic,8,15,0.348
+Glutamine,5,10,0.333
+Vitamin B6 (unspecified),3,6,0.333
+Blend (Amino Acid/Protein),6,12,0.333
+Licorice,4,8,0.333
+Alpha Lipoic Acid,10,21,0.323
+Ginger,7,15,0.318
+Protein,16,35,0.314
+lecithin,4,9,0.308
+Blueberry,3,7,0.3
+Vitamin A (unspecified),10,24,0.294
+N-Acetyl Cysteine,5,12,0.294
+bilberry,4,10,0.286
+Beta-Alanine,6,17,0.261
