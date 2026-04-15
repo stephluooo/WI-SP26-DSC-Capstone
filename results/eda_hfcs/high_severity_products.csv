@@ -1,0 +1,21 @@
+dsld_brand_name,dsld_full_name,dsld_product_type,dsld_ingredient_count,hfcs_report_count,hfcs_max_severity,hfcs_max_severity_score,hfcs_top_reactions,average_rating
+Nature Made,L-Lysine 500 mg,Amino acid/Protein,1,1,Death,7,"[""death"", ""malaise"", ""myocardial infarction""]",3.6
+LES Labs,Magnesium Citrate,Mineral,1,4,Death,7,"[""vomiting"", ""abdominal discomfort"", ""abdominal distension"", ""death"", ""hypoxic-ischaemic encephalopathy""]",4.7
+Monster,Monster Energy,Other Combinations,11,8,Death,7,"[""emotional distress"", ""hypersensitivity"", ""urticaria"", ""choking"", ""foreign body trauma""]",3.6
+Life Extension,Life Extension Mix Tablets,Other Combinations,51,1,Death,7,"[""death""]",4.6
+IF Intestinal Fortitude,PRO-B11,Non-Nutrient/Non-Botanical,1,1,Death,7,"[""death"", ""intentional product misuse"", ""toxicity to various agents""]",4.0
+BulkSupplements.com,Creatine Monohydrate,Non-Nutrient/Non-Botanical,1,6,Death,7,"[""death"", ""lactic acidosis"", ""migraine"", ""poisoning"", ""nausea""]",4.3
+Centrum,Centrum Silver Men 50+,Other Combinations,30,138,Death,7,"[""choking"", ""dysphagia"", ""malaise"", ""foreign body"", ""death""]",4.5
+DC,St. John's Wort,Botanical,3,14,Death,7,"[""cough"", ""death"", ""headache"", ""asthenia"", ""decreased appetite""]",4.6
+Divine Health,Living Chia with Probiotics,Other Combinations,13,5,Death,7,"[""pruritus"", ""rash"", ""alopecia"", ""psoriasis"", ""trichorrhexis""]",4.5
+Puritan's Pride,Q-Sorb CO Q-10 50 mg,Non-Nutrient/Non-Botanical,1,1,Death,7,"[""anorectal disorder"", ""blood glucose increased"", ""blood pressure increased"", ""death"", ""dizziness""]",3.9
+Spring Valley,Vitamin B2 100 mg,Vitamin,1,1,Death,7,"[""death"", ""drug withdrawal syndrome""]",4.6
+Puritan's Pride,Ferrous Sulfate,Mineral,1,17,Death,7,"[""death"", ""vomiting"", ""constipation"", ""diarrhoea"", ""nausea""]",4.3
+Nature Made,Fish Oil Pearls,Fat/Fatty Acid,5,12,Death,7,"[""vomiting"", ""death"", ""cough"", ""dyspnoea"", ""choking""]",4.7
+Dr. Mercola,Antarctic Krill Oil,Other Combinations,5,2,Death,7,"[""body temperature increased"", ""chills"", ""death"", ""diarrhoea haemorrhagic"", ""liver injury""]",5.0
+Apollo Sun,Vita D3 2000 IU,Vitamin,1,9,Death,7,"[""hypercalcaemia"", ""abdominal tenderness"", ""blood calcium increased"", ""calcium ionised increased"", ""hypervitaminosis""]",4.4
+DC,Green Tea Extract,Botanical,2,4,Death,7,"[""abdominal pain upper"", ""acute hepatic failure"", ""alanine aminotransferase increased"", ""aspartate aminotransferase increased"", ""blood alkaline phosphatase increased""]",3.4
+up&up,Calcium Chews Chocolate Flavor,Single Vitamin and Mineral,5,21,Death,7,"[""blood calcium increased"", ""nausea"", ""nephrolithiasis"", ""blood bicarbonate increased"", ""blood creatinine increased""]",4.6
+Performix,SST Support Burn Ice Berry,Non-Nutrient/Non-Botanical,1,7,Death,7,"[""dyspnoea"", ""chest pain"", ""headache"", ""chest discomfort"", ""anxiety""]",4.6
+TRUNATURE,Chromium Picolinate,Mineral,1,2,Death,7,"[""arrhythmia"", ""death"", ""dizziness"", ""headache"", ""obesity""]",4.6
+Pure Encapsulations,Pregnenolone 30 mg,Non-Nutrient/Non-Botanical,1,2,Death,7,"[""death"", ""blood magnesium decreased""]",3.9
