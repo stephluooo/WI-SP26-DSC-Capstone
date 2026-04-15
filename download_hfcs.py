@@ -1,7 +1,7 @@
 """
-Download the complete FDA HFCS (CAERS) adverse event database for dietary
-supplements (industry_code 54).  Flattens each report × product × reaction
-into one row and saves as a CSV, then zips it.
+Download the complete FDA HFCS (CAERS) adverse event database -- all food
+categories.  Flattens each report × product into one row and saves as a
+CSV, then zips it.
 """
 import csv
 import io
@@ -12,22 +12,28 @@ from pathlib import Path
 import requests
 
 OPENFDA_URL = "https://api.fda.gov/food/event.json"
-INDUSTRY_CODE = "54"
 PAGE_SIZE = 1000
 
 OUT_DIR = Path("data")
 CSV_PATH = OUT_DIR / "hfcs_full.csv"
 ZIP_PATH = OUT_DIR / "hfcs_full.csv.zip"
 
+# ~148K records total; each window must stay under 25K to avoid the skip limit.
 DATE_WINDOWS = [
-    ("20040101", "20101231"),
-    ("20110101", "20131231"),
-    ("20140101", "20151231"),
-    ("20160101", "20171231"),
-    ("20180101", "20191231"),
-    ("20200101", "20211231"),
-    ("20220101", "20231231"),
-    ("20240101", "20261231"),
+    ("20040101", "20081231"),
+    ("20090101", "20101231"),
+    ("20110101", "20121231"),
+    ("20130101", "20141231"),
+    ("20150101", "20161231"),
+    ("20170101", "20171231"),
+    ("20180101", "20181231"),
+    ("20190101", "20191231"),
+    ("20200101", "20201231"),
+    ("20210101", "20211231"),
+    ("20220101", "20221231"),
+    ("20230101", "20231231"),
+    ("20240101", "20241231"),
+    ("20250101", "20261231"),
 ]
 
 COLUMNS = [
@@ -47,11 +53,8 @@ COLUMNS = [
 
 
 def pull_all() -> list[dict]:
-    """Pull every supplement adverse-event record via date-range windowing."""
-    first = requests.get(OPENFDA_URL, params={
-        "search": f"products.industry_code:{INDUSTRY_CODE}",
-        "limit": 1,
-    }, timeout=30)
+    """Pull every adverse-event record via date-range windowing."""
+    first = requests.get(OPENFDA_URL, params={"limit": 1}, timeout=30)
     total = first.json()["meta"]["results"]["total"]
     print(f"Total records available: {total:,}", flush=True)
 
@@ -59,10 +62,7 @@ def pull_all() -> list[dict]:
     seen = set()
 
     for win_start, win_end in DATE_WINDOWS:
-        search_q = (
-            f"products.industry_code:{INDUSTRY_CODE} "
-            f"AND date_created:[{win_start} TO {win_end}]"
-        )
+        search_q = f"date_created:[{win_start} TO {win_end}]"
         skip = 0
         win_new = 0
         retries = 0
