@@ -40,6 +40,7 @@ from scipy import stats
 DATA_DIR = Path("data")
 RESULTS_DIR = Path("results/ddi_study")
 REPORTS_DIR = Path("reports")
+FAERS_PARQUET = DATA_DIR / "faers_full.parquet"
 FAERS_ZIP = DATA_DIR / "faers_full.csv.zip"
 
 PHASE1_SIGNALS = RESULTS_DIR / "phase1_signals.csv"
@@ -56,12 +57,25 @@ REPORT_MD = REPORTS_DIR / "ddi_molecular_study.md"
 # PHASE 1 — Signal Detection via Disproportionality Analysis
 # ===================================================================
 
-def load_faers(path: Path = FAERS_ZIP) -> pd.DataFrame:
-    """Load FAERS CSV from zip, applying minimal type coercion."""
+def load_faers() -> pd.DataFrame:
+    """Load FAERS data, preferring Parquet over CSV for speed and memory."""
+    phase1_cols = [
+        "safetyreportid", "drug_characterization",
+        "drug_active_substance", "drug_name", "reactions",
+    ]
+    if FAERS_PARQUET.exists():
+        print(f"[Phase 1] Loading FAERS from {FAERS_PARQUET} (Parquet) ...")
+        df = pd.read_parquet(FAERS_PARQUET, columns=phase1_cols)
+        df = df.astype(str)
+        print(f"  Loaded {len(df):,} rows, {len(phase1_cols)} columns (pruned).")
+        return df
+
     csv.field_size_limit(sys.maxsize)
-    print(f"[Phase 1] Loading FAERS data from {path} ...")
-    df = pd.read_csv(path, dtype=str, low_memory=False)
-    print(f"  Loaded {len(df):,} rows, {df.shape[1]} columns.")
+    path = FAERS_ZIP if FAERS_ZIP.exists() else DATA_DIR / "faers_full.csv"
+    print(f"[Phase 1] Loading FAERS from {path} (CSV) ...")
+    print("  Tip: run convert_to_parquet.py first for 5-10x faster loads.")
+    df = pd.read_csv(path, dtype=str, low_memory=False, usecols=phase1_cols)
+    print(f"  Loaded {len(df):,} rows, {len(phase1_cols)} columns.")
     return df
 
 
