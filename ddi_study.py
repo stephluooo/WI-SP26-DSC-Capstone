@@ -8,7 +8,7 @@ network to predict novel DDIs from chemical structure.
 Usage:
     python ddi_study.py                       # run all phases
     python ddi_study.py --phase 1             # run only Phase 1
-    python ddi_study.py --phase 2 --drugbank data/drugbank_vocabulary.csv
+    python ddi_study.py --phase 2             # run Phase 2 with default DrugBank paths
 
 Requires:
     pip install pandas numpy scipy rdkit torch scikit-learn matplotlib rapidfuzz
@@ -225,91 +225,195 @@ def run_phase1() -> tuple:
 
 def load_drugbank_vocabulary(path: str) -> pd.DataFrame:
     """
-    Load DrugBank vocabulary CSV.  Expected columns:
-        DrugBank ID, Accession Numbers, Common name, CAS, UNII, Synonyms, Standard InChI Key
-    A separate SMILES source (structures.sdf or drugbank_all_structures.csv)
-    must be loaded and joined for fingerprint generation.
+    Load DrugBank vocabulary CSV (plain or zipped).
+    Expected columns: DrugBank ID, Common name, Synonyms, ...
     """
     print(f"[Phase 2] Loading DrugBank vocabulary from {path} ...")
-    vocab = pd.read_csv(path, dtype=str)
+    if path.endswith(".zip"):
+        vocab = pd.read_csv(path, compression="zip", dtype=str)
+    else:
+        vocab = pd.read_csv(path, dtype=str)
     print(f"  {len(vocab):,} DrugBank entries loaded.")
     return vocab
 
 
-def load_drugbank_structures(path: str) -> dict:
+def parse_sdf_structures(path: str) -> dict:
     """
-    Load a mapping of DrugBank ID -> SMILES.
-    Expects a CSV with columns: DrugBank ID, SMILES  (or from SDF parsing).
-    Returns dict {drugbank_id: smiles_string}.
+    Parse DrugBank SDF file (plain or zipped) and extract DRUGBANK_ID -> SMILES.
+    Also builds secondary lookup dicts for GENERIC_NAME, SYNONYMS, and PRODUCTS.
+    Returns (id_to_smiles, id_to_name, name_to_id, synonym_to_id, product_to_id).
     """
-    print(f"[Phase 2] Loading DrugBank structures from {path} ...")
-    df = pd.read_csv(path, dtype=str)
-    mapping = {}
-    for _, row in df.iterrows():
-        dbid = row.get("DrugBank ID") or row.get("drugbank_id")
-        smiles = row.get("SMILES") or row.get("smiles")
-        if pd.notna(dbid) and pd.notna(smiles) and smiles.strip():
-            mapping[dbid.strip()] = smiles.strip()
-    print(f"  {len(mapping):,} structures with SMILES loaded.")
-    return mapping
+    print(f"[Phase 2] Parsing DrugBank SDF from {path} ...")
+    if path.endswith(".zip"):
+        zf = zipfile.ZipFile(path)
+        raw = zf.read(zf.namelist()[0]).decode("utf-8", "replace")
+    else:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            raw = f.read()
+
+    entries = raw.split("$$$$")
+    id_to_smiles = {}
+    id_to_name = {}
+    name_to_id = {}
+    synonym_to_id = {}
+    product_to_id = {}
+
+    for entry in entries:
+        if not entry.strip():
+            continue
+        props = {}
+        lines = entry.split("\n")
+        i = 0
+        while i < len(lines):
+            if lines[i].startswith("> <") and lines[i].endswith(">"):
+                key = lines[i][3:-1]
+                val = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                props[key] = val
+                i += 2
+            else:
+                i += 1
+
+        dbid = props.get("DRUGBANK_ID", "").strip()
+        smiles = props.get("SMILES", "").strip()
+        gname = props.get("GENERIC_NAME", "").strip()
+
+        if not dbid:
+            continue
+
+        if smiles:
+            id_to_smiles[dbid] = smiles
+        if gname:
+            id_to_name[dbid] = gname
+            name_to_id[gname.lower()] = dbid
+
+        for syn in props.get("SYNONYMS", "").split(";"):
+            syn = syn.strip().lower()
+            if syn:
+                synonym_to_id[syn] = dbid
+
+        for prod in props.get("PRODUCTS", "").split(";"):
+            prod = prod.strip().lower()
+            if prod:
+                product_to_id[prod] = dbid
+
+    print(f"  {len(id_to_smiles):,} drugs with SMILES, {len(name_to_id):,} generic names, "
+          f"{len(synonym_to_id):,} synonyms, {len(product_to_id):,} product names.")
+    return id_to_smiles, id_to_name, name_to_id, synonym_to_id, product_to_id
 
 
 def match_faers_to_drugbank(
     faers_drugs: list,
     vocab: pd.DataFrame,
+    sdf_lookups: tuple,
     fuzzy_threshold: float = 0.9,
-) -> dict:
+) -> tuple:
     """
-    Map FAERS drug names to DrugBank IDs using exact then fuzzy matching.
-    Returns dict {faers_name: drugbank_id}.
+    Map FAERS drug names to DrugBank IDs using a tiered strategy:
+      1. Exact match on generic name (from SDF)
+      2. Exact match on synonym (from SDF)
+      3. Exact match on product name (from SDF)
+      4. Exact match on vocabulary CSV common name
+      5. Exact match on vocabulary CSV synonyms
+      6. Fuzzy match (Levenshtein ratio > threshold) as fallback
+
+    Returns (matched_dict, match_details_list).
+    match_details_list has one entry per matched drug with the method used,
+    for verification purposes.
     """
     from rapidfuzz import fuzz, process as rfprocess
 
     print("[Phase 2] Matching FAERS drug names to DrugBank ...")
-    name_to_id = {}
 
-    vocab_names = vocab.set_index("DrugBank ID")["Common name"].dropna().str.lower().to_dict()
-    id_by_name = {v: k for k, v in vocab_names.items()}
+    _, id_to_name, name_to_id, synonym_to_id, product_to_id = sdf_lookups
 
-    synonyms_map = {}
-    if "Synonyms" in vocab.columns:
-        for _, row in vocab.iterrows():
-            dbid = row["DrugBank ID"]
-            syns = row.get("Synonyms", "")
-            if pd.notna(syns):
-                for s in str(syns).split("|"):
-                    s = s.strip().lower()
-                    if s:
-                        synonyms_map[s] = dbid
+    # Build vocabulary CSV lookups
+    vocab_name_to_id = {}
+    vocab_syn_to_id = {}
+    for _, row in vocab.iterrows():
+        dbid = row["DrugBank ID"]
+        cname = row.get("Common name", "")
+        if pd.notna(cname) and cname.strip():
+            vocab_name_to_id[cname.strip().lower()] = dbid
+        syns = row.get("Synonyms", "")
+        if pd.notna(syns):
+            for s in str(syns).split("|"):
+                s = s.strip().lower()
+                if s:
+                    vocab_syn_to_id[s] = dbid
 
     matched = {}
+    details = []
     unmatched = []
 
     for drug in faers_drugs:
         d_lower = drug.strip().lower()
-        if d_lower in id_by_name:
-            matched[drug] = id_by_name[d_lower]
-        elif d_lower in synonyms_map:
-            matched[drug] = synonyms_map[d_lower]
+        if d_lower in name_to_id:
+            dbid = name_to_id[d_lower]
+            matched[drug] = dbid
+            details.append({"faers_name": drug, "drugbank_id": dbid,
+                            "drugbank_name": id_to_name.get(dbid, ""),
+                            "method": "sdf_generic_name", "score": 100})
+        elif d_lower in synonym_to_id:
+            dbid = synonym_to_id[d_lower]
+            matched[drug] = dbid
+            details.append({"faers_name": drug, "drugbank_id": dbid,
+                            "drugbank_name": id_to_name.get(dbid, ""),
+                            "method": "sdf_synonym", "score": 100})
+        elif d_lower in product_to_id:
+            dbid = product_to_id[d_lower]
+            matched[drug] = dbid
+            details.append({"faers_name": drug, "drugbank_id": dbid,
+                            "drugbank_name": id_to_name.get(dbid, ""),
+                            "method": "sdf_product", "score": 100})
+        elif d_lower in vocab_name_to_id:
+            dbid = vocab_name_to_id[d_lower]
+            matched[drug] = dbid
+            details.append({"faers_name": drug, "drugbank_id": dbid,
+                            "drugbank_name": id_to_name.get(dbid, ""),
+                            "method": "vocab_common_name", "score": 100})
+        elif d_lower in vocab_syn_to_id:
+            dbid = vocab_syn_to_id[d_lower]
+            matched[drug] = dbid
+            details.append({"faers_name": drug, "drugbank_id": dbid,
+                            "drugbank_name": id_to_name.get(dbid, ""),
+                            "method": "vocab_synonym", "score": 100})
         else:
             unmatched.append(drug)
 
     if unmatched:
-        all_names = list(id_by_name.keys()) + list(synonyms_map.keys())
-        all_names_ids = {**{n: id_by_name[n] for n in id_by_name}, **synonyms_map}
+        all_names = {}
+        all_names.update({n: name_to_id[n] for n in name_to_id})
+        all_names.update({n: synonym_to_id[n] for n in synonym_to_id})
+        all_names.update({n: vocab_name_to_id[n] for n in vocab_name_to_id})
+        all_names.update({n: vocab_syn_to_id[n] for n in vocab_syn_to_id})
+        all_keys = list(all_names.keys())
         print(f"  Attempting fuzzy match for {len(unmatched):,} unmatched drugs ...")
         for drug in unmatched:
             result = rfprocess.extractOne(
-                drug.lower(), all_names, scorer=fuzz.ratio, score_cutoff=fuzzy_threshold * 100
+                drug.lower(), all_keys, scorer=fuzz.ratio,
+                score_cutoff=fuzzy_threshold * 100,
             )
             if result:
                 best_name, score, _ = result
-                matched[drug] = all_names_ids[best_name]
+                dbid = all_names[best_name]
+                matched[drug] = dbid
+                details.append({"faers_name": drug, "drugbank_id": dbid,
+                                "drugbank_name": id_to_name.get(dbid, ""),
+                                "method": "fuzzy", "score": round(score, 1),
+                                "fuzzy_matched_to": best_name})
 
     n_total = len(faers_drugs)
     n_matched = len(matched)
     print(f"  Matched {n_matched}/{n_total} ({100*n_matched/n_total:.1f}%) FAERS drugs to DrugBank.")
-    return matched
+
+    # Save full match details for verification
+    details_df = pd.DataFrame(details)
+    details_path = RESULTS_DIR / "phase2_match_details.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    details_df.to_csv(details_path, index=False)
+    print(f"  Match details saved to {details_path}")
+
+    return matched, details_df
 
 
 def compute_ecfp(smiles: str, radius: int = 2, n_bits: int = 1024) -> np.ndarray:
@@ -326,23 +430,20 @@ def compute_ecfp(smiles: str, radius: int = 2, n_bits: int = 1024) -> np.ndarray
 
 def build_fingerprint_map(
     matched: dict,
-    structures: dict,
+    id_to_smiles: dict,
     radius: int = 2,
     n_bits: int = 1024,
-) -> dict:
+) -> tuple:
     """
     Build {faers_drug_name: np.array(1024)} from matched DrugBank IDs and SMILES.
     """
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-
     print("[Phase 2] Computing ECFP4 fingerprints ...")
     fp_map = {}
     failed = []
     for drug, dbid in matched.items():
-        smiles = structures.get(dbid)
+        smiles = id_to_smiles.get(dbid)
         if not smiles:
-            failed.append((drug, dbid, "no SMILES"))
+            failed.append((drug, dbid, "no SMILES in SDF"))
             continue
         fp = compute_ecfp(smiles, radius=radius, n_bits=n_bits)
         if fp is None:
@@ -356,17 +457,19 @@ def build_fingerprint_map(
 
 def run_phase2(
     labeled: pd.DataFrame,
-    drugbank_vocab_path: str = "data/drugbank_vocabulary.csv",
-    drugbank_structures_path: str = "data/drugbank_structures.csv",
-) -> dict:
-    """Execute Phase 2 and return fingerprint map."""
+    drugbank_vocab_path: str = "data/drugbank_all_drugbank_vocabulary.csv.zip",
+    drugbank_sdf_path: str = "data/drugbank_all_structures.sdf.zip",
+) -> tuple:
+    """Execute Phase 2 and return (fingerprint_map, match_details_df)."""
     all_drugs = sorted(set(labeled["drug_a"]) | set(labeled["drug_b"]))
     print(f"[Phase 2] {len(all_drugs):,} unique drugs in labeled pairs.")
 
     vocab = load_drugbank_vocabulary(drugbank_vocab_path)
-    structures = load_drugbank_structures(drugbank_structures_path)
-    matched = match_faers_to_drugbank(all_drugs, vocab)
-    fp_map, failed = build_fingerprint_map(matched, structures)
+    sdf_lookups = parse_sdf_structures(drugbank_sdf_path)
+    id_to_smiles = sdf_lookups[0]
+
+    matched, details_df = match_faers_to_drugbank(all_drugs, vocab, sdf_lookups)
+    fp_map, failed = build_fingerprint_map(matched, id_to_smiles)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     with open(PHASE2_STATS, "w") as f:
@@ -374,13 +477,16 @@ def run_phase2(
         f.write(f"DrugBank matched: {len(matched)}\n")
         f.write(f"Fingerprints computed: {len(fp_map)}\n")
         f.write(f"Failed fingerprints: {len(failed)}\n\n")
-        if failed:
-            f.write("Failed drugs:\n")
-            for drug, dbid, reason in failed:
-                f.write(f"  {drug} ({dbid}): {reason}\n")
+        method_counts = details_df["method"].value_counts()
+        f.write("Match method breakdown:\n")
+        for method, count in method_counts.items():
+            f.write(f"  {method}: {count}\n")
+        f.write(f"\nFailed drugs ({len(failed)}):\n")
+        for drug, dbid, reason in failed:
+            f.write(f"  {drug} ({dbid}): {reason}\n")
     print(f"  Stats saved to {PHASE2_STATS}")
 
-    return fp_map
+    return fp_map, details_df
 
 
 # ===================================================================
@@ -985,8 +1091,8 @@ def run_phase4(
 def main():
     parser = argparse.ArgumentParser(description="Plan C: Molecular DDI Prediction")
     parser.add_argument("--phase", type=int, default=0, help="Run a specific phase (1-4). 0 = all.")
-    parser.add_argument("--drugbank-vocab", default="data/drugbank_vocabulary.csv")
-    parser.add_argument("--drugbank-structures", default="data/drugbank_structures.csv")
+    parser.add_argument("--drugbank-vocab", default="data/drugbank_all_drugbank_vocabulary.csv.zip")
+    parser.add_argument("--drugbank-sdf", default="data/drugbank_all_structures.sdf.zip")
     args = parser.parse_args()
 
     run_all = args.phase == 0
@@ -1005,7 +1111,7 @@ def main():
             signals = pd.read_csv(PHASE1_SIGNALS)
 
     if run_all or args.phase == 2:
-        fp_map = run_phase2(labeled, args.drugbank_vocab, args.drugbank_structures)
+        fp_map, _ = run_phase2(labeled, args.drugbank_vocab, args.drugbank_sdf)
         np.savez_compressed(
             RESULTS_DIR / "phase2_fingerprints.npz",
             drugs=np.array(list(fp_map.keys())),
