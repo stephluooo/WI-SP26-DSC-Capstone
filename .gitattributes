@@ -1,3 +1,2 @@
-*.csv.zip filter=lfs diff=lfs merge=lfs -text
-*.jsonl.gz filter=lfs diff=lfs merge=lfs -text
-DSLD-full-database-JSON.zip filter=lfs diff=lfs merge=lfs -text
+*.sh text eol=lf
+*.py text eol=lf
