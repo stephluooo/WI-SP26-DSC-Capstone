@@ -1,13 +1,18 @@
 """
 Download FDA FAERS (drug adverse event) reports from OpenFDA bulk download
-files.  Downloads partition zips for the specified year range, extracts
-JSON, flattens records to CSV rows (one per report × drug), then zips.
+files.  Downloads partition zips, extracts JSON, flattens records to CSV
+rows (one per report x drug), then zips.
 
-Configure YEAR_FILTER to select which years to include.
+Set YEAR_FILTER to a list of substrings (e.g. ["2024", "2025q1"]) to
+download only matching partitions, or None / [] to download everything.
+
+Supports --resume to continue from the last partition if interrupted.
 """
+import argparse
 import csv
 import io
 import json
+import os
 import time
 import zipfile
 from pathlib import Path
@@ -17,8 +22,9 @@ import requests
 OUT_DIR = Path("data")
 CSV_PATH = OUT_DIR / "faers_full.csv"
 ZIP_PATH = OUT_DIR / "faers_full.csv.zip"
+PROGRESS_PATH = OUT_DIR / ".faers_progress"
 DOWNLOAD_INDEX = "https://api.fda.gov/download.json"
-YEAR_FILTER = ["2025q1"]  # set to None for all years
+YEAR_FILTER = None  # None = download ALL partitions (full FAERS database)
 
 COLUMNS = [
     "safetyreportid",
@@ -47,14 +53,14 @@ COLUMNS = [
 ]
 
 
-def get_partition_urls() -> list[str]:
+def get_partition_urls(year_filter: list = None) -> list[str]:
     print("Fetching partition list...", flush=True)
     r = requests.get(DOWNLOAD_INDEX, timeout=60)
     r.raise_for_status()
     partitions = r.json()["results"]["drug"]["event"]["partitions"]
-    if YEAR_FILTER:
+    if year_filter:
         partitions = [p for p in partitions
-                      if any(y in p["file"] for y in YEAR_FILTER)]
+                      if any(y in p["file"] for y in year_filter)]
     urls = [p["file"] for p in partitions]
     total_mb = sum(float(p["size_mb"]) for p in partitions)
     print(f"  {len(urls)} files, {total_mb:.0f} MB compressed", flush=True)
@@ -136,19 +142,55 @@ def flatten_record(rec: dict) -> list[dict]:
     return rows
 
 
+def save_progress(index: int):
+    PROGRESS_PATH.write_text(str(index))
+
+
+def load_progress() -> int:
+    if PROGRESS_PATH.exists():
+        try:
+            return int(PROGRESS_PATH.read_text().strip())
+        except ValueError:
+            pass
+    return -1
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Download FAERS bulk data")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from last completed partition")
+    parser.add_argument("--years", nargs="*", default=None,
+                        help="Year/quarter filter, e.g. --years 2024 2025q1. "
+                             "Omit to download everything.")
+    parser.add_argument("--no-zip", action="store_true",
+                        help="Keep uncompressed CSV (skip zipping)")
+    args = parser.parse_args()
+
+    year_filter = args.years if args.years else YEAR_FILTER
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    urls = get_partition_urls()
+    urls = get_partition_urls(year_filter)
+
+    start_index = 0
+    if args.resume:
+        last = load_progress()
+        if last >= 0:
+            start_index = last + 1
+            print(f"Resuming from partition {start_index}/{len(urls)}")
+
+    file_mode = "a" if (args.resume and start_index > 0 and CSV_PATH.exists()) else "w"
+    write_header = file_mode == "w"
 
     total_rows = 0
     total_reports = 0
     t0 = time.time()
 
-    with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+    with open(CSV_PATH, file_mode, newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMNS)
-        writer.writeheader()
+        if write_header:
+            writer.writeheader()
 
-        for i, url in enumerate(urls):
+        for i in range(start_index, len(urls)):
+            url = urls[i]
             fname = url.split("/")[-1]
             records = download_partition(url)
             file_rows = 0
@@ -160,8 +202,9 @@ def main():
             total_rows += file_rows
 
             elapsed = time.time() - t0
+            done = i - start_index + 1
             pct = (i + 1) / len(urls) * 100
-            eta = (elapsed / (i + 1)) * (len(urls) - i - 1)
+            eta = (elapsed / done) * (len(urls) - i - 1) if done else 0
             print(
                 f"  [{i+1}/{len(urls)}, {pct:.0f}%] {fname}: "
                 f"{len(records):,} reports, {file_rows:,} rows | "
@@ -170,19 +213,25 @@ def main():
                 flush=True,
             )
             f.flush()
+            save_progress(i)
 
     elapsed = time.time() - t0
     size_mb = CSV_PATH.stat().st_size / 1024 / 1024
     print(f"\nCSV: {total_rows:,} rows, {size_mb:.1f} MB, {elapsed:.0f}s", flush=True)
 
-    print("Zipping...", flush=True)
-    with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(CSV_PATH, CSV_PATH.name)
-    zip_mb = ZIP_PATH.stat().st_size / 1024 / 1024
-    print(f"ZIP: {zip_mb:.1f} MB", flush=True)
+    if not args.no_zip:
+        print("Zipping...", flush=True)
+        with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(CSV_PATH, CSV_PATH.name)
+        zip_mb = ZIP_PATH.stat().st_size / 1024 / 1024
+        print(f"ZIP: {zip_mb:.1f} MB", flush=True)
+        CSV_PATH.unlink()
+        print(f"Done. Output: {ZIP_PATH}", flush=True)
+    else:
+        print(f"Done. Output: {CSV_PATH}", flush=True)
 
-    CSV_PATH.unlink()
-    print(f"Done. Output: {ZIP_PATH}", flush=True)
+    if PROGRESS_PATH.exists():
+        PROGRESS_PATH.unlink()
 
 
 if __name__ == "__main__":
