@@ -750,14 +750,22 @@ def score_unseen_pairs(
     seen_pairs: set,
     model_state: dict,
     input_dim: int = 2048,
-    batch_size: int = 1024,
+    batch_size: int = 2048,
+    top_k: int = 500,
     device: str = "cpu",
 ) -> pd.DataFrame:
-    """Score all possible drug pairs not seen in training."""
+    """
+    Score unseen drug pairs in streaming batches, retaining only the
+    top_k highest-probability predictions to avoid OOM.
+    """
+    import heapq
     import torch
 
     drugs = sorted(fp_map.keys())
-    print(f"[Phase 4] Generating unseen pairs from {len(drugs)} drugs ...")
+    n_drugs = len(drugs)
+    total_possible = n_drugs * (n_drugs - 1) // 2
+    print(f"[Phase 4] Scoring unseen pairs from {n_drugs} drugs "
+          f"({total_possible:,} possible) ...")
 
     model = build_model(input_dim)
     model.net[-1] = torch.nn.Identity()
@@ -765,39 +773,54 @@ def score_unseen_pairs(
     model.to(device)
     model.eval()
 
-    pairs = []
-    X_batch = []
+    heap = []
+    batch_pairs = []
+    batch_fps = []
+    scored = 0
+    skipped = 0
+
+    def flush_batch():
+        nonlocal scored
+        if not batch_fps:
+            return
+        X = np.array(batch_fps, dtype=np.float32)
+        with torch.no_grad():
+            logits = model(torch.tensor(X, dtype=torch.float32).to(device))
+            probs = torch.sigmoid(logits).cpu().numpy()
+        for pair, prob in zip(batch_pairs, probs):
+            p = float(prob)
+            if len(heap) < top_k:
+                heapq.heappush(heap, (p, pair))
+            elif p > heap[0][0]:
+                heapq.heapreplace(heap, (p, pair))
+        scored += len(batch_fps)
+        batch_pairs.clear()
+        batch_fps.clear()
 
     for i, d_a in enumerate(drugs):
         for d_b in drugs[i+1:]:
-            key = (d_a, d_b) if d_a < d_b else (d_b, d_a)
+            key = (d_a, d_b)
             if key in seen_pairs:
+                skipped += 1
                 continue
-            fp = np.concatenate([fp_map[d_a], fp_map[d_b]])
-            pairs.append(key)
-            X_batch.append(fp)
+            batch_pairs.append(key)
+            batch_fps.append(np.concatenate([fp_map[d_a], fp_map[d_b]]))
+            if len(batch_fps) >= batch_size:
+                flush_batch()
+                if scored % 500_000 == 0:
+                    print(f"    Scored {scored:,} pairs ...", flush=True)
 
-    if not X_batch:
-        print("  No unseen pairs to score.")
-        return pd.DataFrame()
+    flush_batch()
 
-    X_all = np.array(X_batch, dtype=np.float32)
-    probs = []
-    with torch.no_grad():
-        for start in range(0, len(X_all), batch_size):
-            end = min(start + batch_size, len(X_all))
-            xb = torch.tensor(X_all[start:end], dtype=torch.float32).to(device)
-            logits = model(xb)
-            p = torch.sigmoid(logits).cpu().numpy()
-            probs.extend(p.tolist())
+    print(f"  Scored {scored:,} unseen pairs, skipped {skipped:,} seen pairs.")
+    print(f"  Retained top {len(heap)} predictions.")
 
+    rows = sorted(heap, key=lambda x: -x[0])
     result = pd.DataFrame({
-        "drug_a": [p[0] for p in pairs],
-        "drug_b": [p[1] for p in pairs],
-        "predicted_probability": probs,
+        "drug_a": [r[1][0] for r in rows],
+        "drug_b": [r[1][1] for r in rows],
+        "predicted_probability": [r[0] for r in rows],
     })
-    result.sort_values("predicted_probability", ascending=False, inplace=True)
-    print(f"  Scored {len(result):,} unseen pairs.")
     return result
 
 
