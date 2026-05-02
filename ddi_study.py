@@ -1039,11 +1039,13 @@ def generate_report(signals, labeled, metrics, predictions, validation, dbid_to_
     print(f"[Phase 4] Report saved to {REPORT_MD}")
 
 
-def run_phase4(signals, labeled, fp_map, model_state, metrics, dbid_to_name):
+def run_phase4(signals, labeled, fp_map, model_state, metrics, dbid_to_name,
+               min_exposure=MIN_PAIR_EXPOSURE):
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    predictions = score_unseen_pairs(fp_map, labeled, model_state, device=device)
+    predictions = score_unseen_pairs(fp_map, labeled, model_state, device=device,
+                                     min_exposure=min_exposure)
     predictions = deduplicate_predictions(predictions)
 
     # Add human-readable names
@@ -1072,12 +1074,11 @@ def main():
                         default="data/drugbank_all_drugbank_vocabulary.csv.zip")
     parser.add_argument("--drugbank-sdf",
                         default="data/drugbank_all_structures.sdf.zip")
-    parser.add_argument("--min-exposure", type=int, default=MIN_PAIR_EXPOSURE,
-                        help=f"Min training pairs per drug for Phase 4 (default: {MIN_PAIR_EXPOSURE})")
+    parser.add_argument("--min-exposure", type=int, default=50,
+                        help="Min training pairs per drug for Phase 4 (default: 50)")
     args = parser.parse_args()
 
-    global MIN_PAIR_EXPOSURE
-    MIN_PAIR_EXPOSURE = args.min_exposure
+    min_exposure = args.min_exposure
 
     run_all = args.phase == 0
     signals, labeled, fp_map, model_state, metrics = None, None, None, None, None
@@ -1137,7 +1138,8 @@ def main():
         if model_state is None:
             print("[Phase 4] No trained model found. Run Phase 3 first.")
             return
-        run_phase4(signals, labeled, fp_map, model_state, metrics, dbid_to_name)
+        run_phase4(signals, labeled, fp_map, model_state, metrics, dbid_to_name,
+                   min_exposure=min_exposure)
 
     print("\nDone.")
 
