@@ -1,3 +1,9 @@
 data/amazon_dsld_merged.csv
+data/drugbank_all_drug_drug_interactions.csv
+data/faers_full.parquet
 .DS_Store
 previous_works/
+results/eda_hfcs/
+results/hfcs_analysis/
+results/cnn_regression/
+results/xgboost_regression/
