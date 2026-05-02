@@ -785,15 +785,13 @@ def validate_against_drugbank(
     known = pd.read_csv(drugbank_interactions_path, dtype=str)
     cols = known.columns.tolist()
 
-    # Try to find the two DrugBank ID columns
-    id_cols = [c for c in cols if "drugbank" in c.lower() and "id" in c.lower()]
-    if len(id_cols) >= 2:
-        col_a, col_b = id_cols[0], id_cols[1]
-    elif len(cols) >= 2:
-        col_a, col_b = cols[0], cols[1]
-    else:
-        print(f"  ERROR: Cannot identify ID columns in {cols}")
-        return pd.DataFrame({"k": [], "hits": [], "precision": []})
+    # Find the two DrugBank ID columns
+    id_cols = [c for c in cols if c.endswith("_id")]
+    if len(id_cols) < 2:
+        id_cols = [c for c in cols if "id" in c.lower()]
+    if len(id_cols) < 2:
+        id_cols = cols[:2]
+    col_a, col_b = id_cols[0], id_cols[1]
 
     print(f"  Using columns: {col_a}, {col_b}")
     known_set = set()
