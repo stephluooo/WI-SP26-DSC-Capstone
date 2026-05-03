@@ -220,49 +220,108 @@ def _clean_faers_name(raw: str) -> str:
     return " ".join(tokens).strip(" -,;:")
 
 
+def _split_combo(raw: str) -> list:
+    """Split combination drug strings on / or \\ and return components."""
+    parts = re.split(r"[/\\]", raw)
+    return [p.strip() for p in parts if p.strip() and len(p.strip()) > 2]
+
+
+def _try_lookup(name: str, lookup: dict) -> str | None:
+    """Try exact lookup, then cleaned, then first token."""
+    hit = lookup.get(name)
+    if hit:
+        return hit
+    cleaned = _clean_faers_name(name)
+    if cleaned and cleaned != name:
+        hit = lookup.get(cleaned)
+        if hit:
+            return hit
+    tokens = (cleaned or name).split()
+    if len(tokens) > 1:
+        hit = lookup.get(tokens[0])
+        if hit:
+            return hit
+        hit = lookup.get(" ".join(tokens[:2]))
+        if hit:
+            return hit
+    return None
+
+
 def canonicalize_drug(raw_name: str, lookup: dict) -> str:
     """
     Map a FAERS drug name to a DrugBank ID using tiered matching:
       1. Exact match on full raw name
       2. Exact match on cleaned name (stripped dosage/formulation/manufacturer)
       3. Extract parenthetical content and try that
-      4. Try first token only (often the active ingredient)
+      4. Split on / or \\ for combination drugs, return first matching component
+      5. Try first token only (often the active ingredient)
+    Returns the DrugBank ID or None.
     """
     raw = raw_name.strip().lower()
 
-    hit = lookup.get(raw)
+    hit = _try_lookup(raw, lookup)
     if hit:
         return hit
 
-    cleaned = _clean_faers_name(raw)
-    if cleaned and cleaned != raw:
-        hit = lookup.get(cleaned)
+    paren = re.findall(r"\(([^)]+)\)", raw)
+    for p in paren:
+        hit = _try_lookup(p.strip().lower(), lookup)
         if hit:
             return hit
 
-    paren = re.findall(r"\(([^)]+)\)", raw)
-    for p in paren:
-        p = p.strip().lower()
-        hit = lookup.get(p)
-        if hit:
-            return hit
-        p_clean = _clean_faers_name(p)
-        if p_clean:
-            hit = lookup.get(p_clean)
+    parts = _split_combo(raw)
+    if len(parts) > 1:
+        for part in parts:
+            hit = _try_lookup(part.lower(), lookup)
             if hit:
                 return hit
 
-    tokens = cleaned.split() if cleaned else raw.split()
-    if len(tokens) > 1:
-        hit = lookup.get(tokens[0])
-        if hit:
-            return hit
-        first_two = " ".join(tokens[:2])
-        hit = lookup.get(first_two)
-        if hit:
-            return hit
-
     return None
+
+
+def _fuzzy_match_batch(unmatched: list, lookup: dict,
+                       threshold: float = 85.0) -> dict:
+    """
+    Fuzzy-match a list of unmatched drug names against the lookup keys.
+    Returns {raw_name: drugbank_id} for names that matched above threshold.
+    """
+    try:
+        from rapidfuzz import process, fuzz
+    except ImportError:
+        print("  WARNING: rapidfuzz not installed, skipping fuzzy matching.")
+        return {}
+
+    lookup_keys = list(lookup.keys())
+    results = {}
+    n_matched = 0
+
+    to_fuzzy = []
+    for raw in unmatched:
+        cleaned = _clean_faers_name(raw)
+        candidate = cleaned if cleaned else raw
+        if len(candidate) >= 4:
+            to_fuzzy.append((raw, candidate))
+
+    print(f"  Fuzzy matching {len(to_fuzzy):,} remaining unmatched names "
+          f"(threshold={threshold}) ...")
+
+    for i, (raw, candidate) in enumerate(to_fuzzy):
+        result = process.extractOne(
+            candidate, lookup_keys,
+            scorer=fuzz.ratio,
+            score_cutoff=threshold,
+        )
+        if result:
+            match_str, score, _ = result
+            results[raw] = lookup[match_str]
+            n_matched += 1
+
+        if (i + 1) % 10000 == 0:
+            print(f"    {i+1:,}/{len(to_fuzzy):,} checked, "
+                  f"{n_matched:,} fuzzy hits ...", flush=True)
+
+    print(f"  Fuzzy matching done: {n_matched:,} additional matches.")
+    return results
 
 
 # ===================================================================
@@ -318,6 +377,12 @@ def reconstruct_reports(df: pd.DataFrame, lookup: dict) -> tuple:
     raw_to_dbid = {}
     for rd in unique_raw:
         raw_to_dbid[rd] = canonicalize_drug(rd, lookup)
+
+    # Fuzzy-match remaining unmatched names
+    still_unmatched = [rd for rd, dbid in raw_to_dbid.items() if dbid is None]
+    if still_unmatched:
+        fuzzy_hits = _fuzzy_match_batch(still_unmatched, lookup)
+        raw_to_dbid.update(fuzzy_hits)
 
     reports = {}
     for rid, grp in suspects.groupby("safetyreportid"):
