@@ -183,9 +183,86 @@ def build_canonicalizer(
     return unified, id_to_name, id_to_smiles
 
 
+import re
+
+_DOSE_RE = re.compile(
+    r"\s+\d+[\d.,]*\s*"
+    r"(mg|ml|mcg|ug|g|%|iu|units?|mmol|meq|gm)"
+    r"(/\d+[\d.,]*\s*(mg|ml|mcg|ug|g|%|iu|units?|mmol|meq|gm))?"
+    r"(\s|$|/)",
+    re.IGNORECASE,
+)
+_NOISE_TOKENS = {
+    "tablets", "tablet", "capsules", "capsule", "injection", "solution",
+    "oral", "topical", "cream", "ointment", "gel", "patch", "inhaler",
+    "drops", "syrup", "suspension", "powder", "spray", "iv", "im",
+    "usp", "hcl", "hct", "er", "sr", "cr", "xr", "xl", "dr",
+    "tabs", "caps", "inj", "soln", "susp", "tab", "cap",
+    "mfg", "mfg.", "ltd", "inc", "llc", "labs", "pharma",
+    "watson", "teva", "mylan", "sandoz", "novartis", "pfizer",
+    "qualitest", "barr", "actavis", "apotex", "lupin", "aurobindo",
+    "generic", "brand", "day", "daily", "weekly", "monthly", "once",
+    "twice", "film", "coated", "extended", "release", "modified",
+    "delayed", "chewable", "dispersible", "effervescent", "sublingual",
+    "ophthalmic", "nasal", "rectal", "vaginal", "transdermal",
+}
+
+
+def _clean_faers_name(raw: str) -> str:
+    """Strip dosages, formulations, and manufacturer info from a FAERS name."""
+    s = raw.strip().lower()
+    s = _DOSE_RE.sub(" ", s)
+    s = re.sub(r"\(.*?\)", " ", s)       # remove parenthetical text
+    s = re.sub(r"\\\w+", " ", s)         # remove backslash-separated ingredients
+    s = re.sub(r"\b\d{4,}\b", " ", s)    # remove long numbers (NDC codes etc.)
+    tokens = s.split()
+    tokens = [t for t in tokens if t.rstrip(".,;:") not in _NOISE_TOKENS]
+    return " ".join(tokens).strip(" -,;:")
+
+
 def canonicalize_drug(raw_name: str, lookup: dict) -> str:
-    """Map a single FAERS drug name to a DrugBank ID, or return None."""
-    return lookup.get(raw_name.strip().lower())
+    """
+    Map a FAERS drug name to a DrugBank ID using tiered matching:
+      1. Exact match on full raw name
+      2. Exact match on cleaned name (stripped dosage/formulation/manufacturer)
+      3. Extract parenthetical content and try that
+      4. Try first token only (often the active ingredient)
+    """
+    raw = raw_name.strip().lower()
+
+    hit = lookup.get(raw)
+    if hit:
+        return hit
+
+    cleaned = _clean_faers_name(raw)
+    if cleaned and cleaned != raw:
+        hit = lookup.get(cleaned)
+        if hit:
+            return hit
+
+    paren = re.findall(r"\(([^)]+)\)", raw)
+    for p in paren:
+        p = p.strip().lower()
+        hit = lookup.get(p)
+        if hit:
+            return hit
+        p_clean = _clean_faers_name(p)
+        if p_clean:
+            hit = lookup.get(p_clean)
+            if hit:
+                return hit
+
+    tokens = cleaned.split() if cleaned else raw.split()
+    if len(tokens) > 1:
+        hit = lookup.get(tokens[0])
+        if hit:
+            return hit
+        first_two = " ".join(tokens[:2])
+        hit = lookup.get(first_two)
+        if hit:
+            return hit
+
+    return None
 
 
 # ===================================================================
@@ -236,12 +313,18 @@ def reconstruct_reports(df: pd.DataFrame, lookup: dict) -> tuple:
     unmapped_total = 0
     match_details = []
 
+    # Pre-compute canonicalization for all unique raw drug names
+    unique_raw = set(suspects["raw_drug"].dropna())
+    raw_to_dbid = {}
+    for rd in unique_raw:
+        raw_to_dbid[rd] = canonicalize_drug(rd, lookup)
+
     reports = {}
     for rid, grp in suspects.groupby("safetyreportid"):
         raw_drugs = set(grp["raw_drug"].dropna())
         canonical = set()
         for rd in raw_drugs:
-            dbid = lookup.get(rd)
+            dbid = raw_to_dbid.get(rd)
             if dbid:
                 canonical.add(dbid)
                 mapped_total += 1
@@ -261,9 +344,8 @@ def reconstruct_reports(df: pd.DataFrame, lookup: dict) -> tuple:
     print(f"  {len(reports):,} multi-drug reports retained (2+ canonical drugs).")
 
     # Build match details for ALL unique raw drugs seen
-    unique_raw = set(suspects["raw_drug"].dropna())
     for rd in sorted(unique_raw):
-        dbid = lookup.get(rd)
+        dbid = raw_to_dbid.get(rd)
         match_details.append({
             "faers_name": rd,
             "drugbank_id": dbid if dbid else "",
