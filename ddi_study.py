@@ -29,7 +29,7 @@ import zipfile
 from collections import Counter, defaultdict
 from itertools import combinations
 from pathlib import Path
-from textwrap import dedent
+
 
 import matplotlib
 matplotlib.use("Agg")
@@ -1089,95 +1089,94 @@ def generate_report(signals, labeled, metrics, predictions, validation, dbid_to_
         for _, r in validation.iterrows():
             precision_md += f"| {int(r['k'])} | {int(r['hits'])} | {r['precision']:.3f} |\n"
 
-    md = dedent(f"""\
-    # Molecular Fingerprint DDI Prediction — Study Report
+    md = f"""# Molecular Fingerprint DDI Prediction — Study Report
 
-    ## Overview
+## Overview
 
-    This study applies a molecular fingerprint-based deep learning pipeline to
-    the FDA Adverse Event Reporting System (FAERS) to detect and predict
-    multi-drug interactions (DDIs). Drug names are canonicalized to DrugBank IDs
-    before pair generation, eliminating false signals from brand/generic name variants.
+This study applies a molecular fingerprint-based deep learning pipeline to
+the FDA Adverse Event Reporting System (FAERS) to detect and predict
+multi-drug interactions (DDIs). Drug names are canonicalized to DrugBank IDs
+before pair generation, eliminating false signals from brand/generic name variants.
 
-    **Dataset**: FAERS (full database, all available years).
+**Dataset**: FAERS (full database, all available years).
 
-    ---
+---
 
-    ## Phase 1: Signal Detection
+## Phase 1: Signal Detection
 
-    Pairwise disproportionality analysis (ROR) on DrugBank-canonicalized drug
-    pairs identified **{n_signals:,}** statistically significant signals.
-    Contingency table filters: a >= 3, b >= 3, ROR > 2, 95% CI lower > 1.5.
+Pairwise disproportionality analysis (ROR) on DrugBank-canonicalized drug
+pairs identified **{n_signals:,}** statistically significant signals.
+Contingency table filters: a >= 3, b >= 3, ROR > 2, 95% CI lower > 1.5.
 
-    **Labeled pairs**: {n_pos:,} positive / {n_neg:,} negative.
+**Labeled pairs**: {n_pos:,} positive / {n_neg:,} negative.
 
-    ### Top 10 Strongest Signals
+### Top 10 Strongest Signals
 
-    {top_signals_md}
+{top_signals_md}
 
-    ![Phase 1 Overview](../results/ddi_study/phase1_overview.png)
+![Phase 1 Overview](../results/ddi_study/phase1_overview.png)
 
-    ---
+---
 
-    ## Phase 2: ECFP4 Fingerprints
+## Phase 2: ECFP4 Fingerprints
 
-    DrugBank IDs mapped to 1024-bit ECFP4 molecular fingerprints via RDKit.
-    See `results/ddi_study/phase2_mapping_stats.txt` for statistics.
+DrugBank IDs mapped to 1024-bit ECFP4 molecular fingerprints via RDKit.
+See `results/ddi_study/phase2_mapping_stats.txt` for statistics.
 
-    ---
+---
 
-    ## Phase 3: Deep Neural Network
+## Phase 3: Deep Neural Network
 
-    4-layer DNN (2048->512->256->128->1) with 5-fold stratified CV.
+4-layer DNN (2048->512->256->128->1) with 5-fold stratified CV.
 
-    **Mean AUC**: {mean_auc:.4f} +/- {std_auc:.4f}
+**Mean AUC**: {mean_auc:.4f} +/- {std_auc:.4f}
 
-    ### Per-Fold Metrics
+### Per-Fold Metrics
 
-    {metrics_md}
+{metrics_md}
 
-    ![ROC](../results/ddi_study/phase3_roc_curve.png)
-    ![Metrics](../results/ddi_study/phase4_cv_metrics.png)
+![ROC](../results/ddi_study/phase3_roc_curve.png)
+![Metrics](../results/ddi_study/phase4_cv_metrics.png)
 
-    ---
+---
 
-    ## Phase 4: Novel DDI Predictions
+## Phase 4: Novel DDI Predictions
 
-    Scored unseen drug pairs (minimum {MIN_PAIR_EXPOSURE} training-pair
-    exposure per drug). Deduplicated by DrugBank ID.
+Scored unseen drug pairs (minimum {MIN_PAIR_EXPOSURE} training-pair
+exposure per drug). Deduplicated by DrugBank ID.
 
-    ### Top 10 Predicted Novel DDIs
+### Top 10 Predicted Novel DDIs
 
-    {top_novel_md}
+{top_novel_md}
 
-    ![Top Predictions](../results/ddi_study/phase4_top20_predictions.png)
+![Top Predictions](../results/ddi_study/phase4_top20_predictions.png)
 
-    ### Signal Heatmap
+### Signal Heatmap
 
-    ![Heatmap](../results/ddi_study/phase4_signal_heatmap.png)
+![Heatmap](../results/ddi_study/phase4_signal_heatmap.png)
 
-    ### Validation Against DrugBank
+### Validation Against DrugBank
 
-    {precision_md}
+{precision_md}
 
-    ---
+---
 
-    ## Limitations
+## Limitations
 
-    - FAERS is spontaneous reporting; does not establish causation.
-    - Drugs not in DrugBank are excluded from analysis.
-    - Model learns substructure-reporting correlations, not pharmacokinetic mechanisms.
-    - Minimum-exposure filter reduces false positives but may exclude rare-but-real DDIs.
+- FAERS is spontaneous reporting; does not establish causation.
+- Drugs not in DrugBank are excluded from analysis.
+- Model learns substructure-reporting correlations, not pharmacokinetic mechanisms.
+- Minimum-exposure filter reduces false positives but may exclude rare-but-real DDIs.
 
-    ## References
+## References
 
-    1. Schreier, T. et al. (2024). Integration of FAERS, DrugBank and SIDER
-       for ML-based ADR Detection. *Datenbank-Spektrum*, 24, 233-242.
-    2. Zhang, X. et al. (2025). Identifying Drug Combinations Associated with
-       Acute Kidney Injury. *Biomed J Sci & Tech Res*, 64(1).
-    3. Shen, Y. et al. (2020). Mining High-Order Drug Interaction Effects.
-       *BMC Med Inform Decis Mak*, 20, 48.
-    """)
+1. Schreier, T. et al. (2024). Integration of FAERS, DrugBank and SIDER
+   for ML-based ADR Detection. *Datenbank-Spektrum*, 24, 233-242.
+2. Zhang, X. et al. (2025). Identifying Drug Combinations Associated with
+   Acute Kidney Injury. *Biomed J Sci & Tech Res*, 64(1).
+3. Shen, Y. et al. (2020). Mining High-Order Drug Interaction Effects.
+   *BMC Med Inform Decis Mak*, 20, 48.
+"""
 
     with open(REPORT_MD, "w", encoding="utf-8") as f:
         f.write(md)
