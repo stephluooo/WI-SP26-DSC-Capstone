@@ -481,6 +481,114 @@ def filter_signals(signals: pd.DataFrame, ci_threshold: float = 1.5) -> pd.DataF
     return sig
 
 
+def bootstrap_signals(
+    signals: pd.DataFrame,
+    n_boot: int = 500,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Poisson-resample the contingency cells (a, b, c, d) for each significant
+    signal and recompute ROR. Reports the median and 95% percentile interval
+    across bootstrap draws. Low-count signals (e.g. a=3) get wide intervals
+    because Poisson(3) has large relative variance, so ranking by the lower
+    bound demotes them naturally.
+
+    Output columns mirror the input plus:
+      ror_bootstrap_median, ror_bootstrap_p025, ror_bootstrap_p975,
+      ror_bootstrap_width (p975 - p025)
+    Sorted descending by ror_bootstrap_p025.
+    """
+    print(f"[Phase 1] Bootstrapping {len(signals):,} signals "
+          f"(B={n_boot}, seed={seed}) ...")
+    rng = np.random.default_rng(seed)
+
+    a_arr = signals["a"].to_numpy(dtype=np.int64)
+    b_arr = signals["b"].to_numpy(dtype=np.int64)
+    c_arr = signals["c"].to_numpy(dtype=np.int64)
+    d_arr = signals["d"].to_numpy(dtype=np.int64)
+
+    median = np.empty(len(signals), dtype=np.float64)
+    p025 = np.empty(len(signals), dtype=np.float64)
+    p975 = np.empty(len(signals), dtype=np.float64)
+
+    chunk = 5000
+    for start in range(0, len(signals), chunk):
+        end = min(start + chunk, len(signals))
+        a_b = rng.poisson(a_arr[start:end, None], size=(end - start, n_boot))
+        b_b = rng.poisson(b_arr[start:end, None], size=(end - start, n_boot))
+        c_b = rng.poisson(c_arr[start:end, None], size=(end - start, n_boot))
+        d_b = rng.poisson(d_arr[start:end, None], size=(end - start, n_boot))
+
+        a_b = np.maximum(a_b, 1)
+        b_b = np.maximum(b_b, 1)
+        c_b = np.maximum(c_b, 1)
+        d_b = np.maximum(d_b, 1)
+
+        ror_b = (a_b.astype(np.float64) * d_b) / (b_b * c_b)
+        median[start:end] = np.median(ror_b, axis=1)
+        p025[start:end] = np.percentile(ror_b, 2.5, axis=1)
+        p975[start:end] = np.percentile(ror_b, 97.5, axis=1)
+
+        if (start // chunk) % 10 == 0:
+            print(f"    bootstrapped {end:,}/{len(signals):,} ...", flush=True)
+
+    out = signals.copy()
+    out["ror_bootstrap_median"] = np.round(median, 3)
+    out["ror_bootstrap_p025"] = np.round(p025, 3)
+    out["ror_bootstrap_p975"] = np.round(p975, 3)
+    out["ror_bootstrap_width"] = np.round(p975 - p025, 3)
+    out.sort_values("ror_bootstrap_p025", ascending=False, inplace=True)
+    return out
+
+
+def plot_bootstrap_comparison(boot_df: pd.DataFrame, dbid_to_name: dict,
+                              out_path: Path) -> None:
+    """Compare absolute ROR ranking to bootstrap-lower-CI ranking for top 20."""
+    from matplotlib.ticker import LogLocator, FuncFormatter
+
+    top_abs = boot_df.sort_values("ror", ascending=False).head(20).copy()
+    top_boot = boot_df.sort_values("ror_bootstrap_p025",
+                                   ascending=False).head(20).copy()
+
+    def label(row):
+        a = dbid_to_name.get(row["drug_a"], row["drug_a"])[:18]
+        b = dbid_to_name.get(row["drug_b"], row["drug_b"])[:18]
+        return f"{a} + {b}  [a={row['a']}]"
+
+    top_abs["lbl"] = top_abs.apply(label, axis=1)
+    top_boot["lbl"] = top_boot.apply(label, axis=1)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    axes[0].barh(top_abs["lbl"][::-1], top_abs["ror"][::-1], edgecolor="black")
+    axes[0].set_xscale("log")
+    axes[0].set_xlabel("Absolute ROR (log scale)")
+    axes[0].set_title("Top 20 by Absolute ROR")
+    axes[0].xaxis.set_major_locator(LogLocator(base=10, numticks=8))
+    axes[0].xaxis.set_major_formatter(
+        FuncFormatter(lambda x, _: f"{int(x):,}" if x >= 1 else f"{x:g}")
+    )
+
+    axes[1].barh(top_boot["lbl"][::-1], top_boot["ror_bootstrap_p025"][::-1],
+                 edgecolor="black",
+                 xerr=[top_boot["ror_bootstrap_p025"][::-1]
+                       - top_boot["ror_bootstrap_p025"][::-1],
+                       top_boot["ror_bootstrap_p975"][::-1]
+                       - top_boot["ror_bootstrap_p025"][::-1]],
+                 capsize=2, error_kw={"alpha": 0.5})
+    axes[1].set_xscale("log")
+    axes[1].set_xlabel("Bootstrap ROR 2.5% lower bound (log scale)")
+    axes[1].set_title("Top 20 by Bootstrap-Stable ROR")
+    axes[1].xaxis.set_major_locator(LogLocator(base=10, numticks=8))
+    axes[1].xaxis.set_major_formatter(
+        FuncFormatter(lambda x, _: f"{int(x):,}" if x >= 1 else f"{x:g}")
+    )
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+
+
 def label_pairs(signals: pd.DataFrame, all_pairs: set, ci_threshold: float = 1.5) -> pd.DataFrame:
     positive_pairs = set()
     for _, row in signals.iterrows():
@@ -501,7 +609,8 @@ def label_pairs(signals: pd.DataFrame, all_pairs: set, ci_threshold: float = 1.5
     return labeled
 
 
-def run_phase1(lookup: dict, dbid_to_name: dict) -> tuple:
+def run_phase1(lookup: dict, dbid_to_name: dict, run_bootstrap: bool = False,
+               n_boot: int = 500) -> tuple:
     """Execute Phase 1 with DrugBank-canonicalized drug identifiers."""
     df = load_faers()
     reports, match_details = reconstruct_reports(df, lookup)
@@ -530,20 +639,48 @@ def run_phase1(lookup: dict, dbid_to_name: dict) -> tuple:
 
     labeled = label_pairs(sig_filtered, all_pairs)
 
-    # Charts
+    # Charts (log-scaled axes with linear-number tick labels)
+    from matplotlib.ticker import LogLocator, FuncFormatter
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    axes[0].hist(np.log2(sig_filtered["ror"].clip(upper=1e4)), bins=60, edgecolor="black")
-    axes[0].set_xlabel("log2(ROR)")
+
+    ror_vals = sig_filtered["ror"].clip(upper=1e4)
+    bins = np.logspace(np.log10(max(ror_vals.min(), 1.0)),
+                       np.log10(ror_vals.max()), 60)
+    axes[0].hist(ror_vals, bins=bins, edgecolor="black")
+    axes[0].set_xscale("log")
+    axes[0].set_xlabel("ROR (log scale)")
     axes[0].set_ylabel("Count")
     axes[0].set_title("Distribution of Significant ROR Signals")
+    axes[0].xaxis.set_major_locator(LogLocator(base=10, numticks=10))
+    axes[0].xaxis.set_major_formatter(
+        FuncFormatter(lambda x, _: f"{int(x):,}" if x >= 1 else f"{x:g}")
+    )
 
     top_rxns = sig_filtered["reaction"].value_counts().head(20)
     axes[1].barh(top_rxns.index[::-1], top_rxns.values[::-1], edgecolor="black")
-    axes[1].set_xlabel("Number of DDI Signals")
+    axes[1].set_xscale("log")
+    axes[1].set_xlabel("Number of DDI signals (log scale)")
     axes[1].set_title("Top 20 Reactions in DDI Signals")
+    axes[1].xaxis.set_major_locator(LogLocator(base=10, numticks=10))
+    axes[1].xaxis.set_major_formatter(
+        FuncFormatter(lambda x, _: f"{int(x):,}" if x >= 1 else f"{x:g}")
+    )
     plt.tight_layout()
     plt.savefig(RESULTS_DIR / "phase1_overview.png", dpi=150)
     plt.close()
+
+    if run_bootstrap and len(sig_filtered) > 0:
+        boot = bootstrap_signals(sig_filtered, n_boot=n_boot)
+        boot["drug_a_name"] = boot["drug_a"].map(lambda x: dbid_to_name.get(x, x))
+        boot["drug_b_name"] = boot["drug_b"].map(lambda x: dbid_to_name.get(x, x))
+        boot_path = RESULTS_DIR / "phase1_bootstrap_signals.csv"
+        boot.to_csv(boot_path, index=False)
+        print(f"  Bootstrap signals saved to {boot_path}")
+        plot_bootstrap_comparison(
+            boot, dbid_to_name,
+            RESULTS_DIR / "phase1_bootstrap_comparison.png"
+        )
+        print("  Bootstrap comparison chart saved.")
 
     return sig_filtered, labeled
 
@@ -970,15 +1107,24 @@ def generate_visualizations(signals, predictions, validation, metrics, dbid_to_n
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if predictions is not None and len(predictions) > 0:
+        from matplotlib.ticker import FuncFormatter
         top20 = predictions.head(20).copy()
         top20["pair"] = (
             top20["drug_a"].map(lambda x: dbid_to_name.get(x, x)[:20]) + " + " +
             top20["drug_b"].map(lambda x: dbid_to_name.get(x, x)[:20])
         )
+        # Plot on a 1-p log scale: probabilities cluster near 1.0, so log(1-p)
+        # spreads them out. The x-axis is reversed so higher p appears further right.
+        one_minus_p = (1.0 - top20["predicted_probability"]).clip(lower=1e-6)
         fig, ax = plt.subplots(figsize=(10, 7))
-        ax.barh(top20["pair"][::-1], top20["predicted_probability"][::-1], edgecolor="black")
-        ax.set_xlabel("Predicted Interaction Probability")
+        ax.barh(top20["pair"][::-1], one_minus_p[::-1], edgecolor="black")
+        ax.set_xscale("log")
+        ax.invert_xaxis()
+        ax.set_xlabel("Predicted Interaction Probability (1-p log scale)")
         ax.set_title("Top 20 Predicted Novel DDIs")
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda x, _: f"{1 - x:.4f}" if x > 0 else "1.0000")
+        )
         plt.tight_layout()
         plt.savefig(RESULTS_DIR / "phase4_top20_predictions.png", dpi=150)
         plt.close()
@@ -1220,6 +1366,15 @@ def main():
                         default="data/drugbank_all_structures.sdf.zip")
     parser.add_argument("--min-exposure", type=int, default=50,
                         help="Min training pairs per drug for Phase 4 (default: 50)")
+    parser.add_argument("--bootstrap", action="store_true",
+                        help="Run Phase 1 bootstrap analysis (Poisson resampling of "
+                             "contingency cells) and write phase1_bootstrap_signals.csv "
+                             "+ phase1_bootstrap_comparison.png.")
+    parser.add_argument("--bootstrap-n", type=int, default=500,
+                        help="Number of bootstrap draws per signal (default: 500).")
+    parser.add_argument("--bootstrap-only", action="store_true",
+                        help="Re-run bootstrap on existing phase1_signals.csv without "
+                             "redoing FAERS load. Implies --bootstrap.")
     args = parser.parse_args()
 
     min_exposure = args.min_exposure
@@ -1242,8 +1397,32 @@ def main():
         with open(name_map_path, "w") as f:
             jsonmod.dump(dbid_to_name, f)
 
+    if args.bootstrap_only:
+        # Re-run bootstrap only on already-saved signals.
+        if not PHASE1_SIGNALS.exists():
+            raise SystemExit(f"--bootstrap-only requires {PHASE1_SIGNALS} to exist.")
+        sig_existing = pd.read_csv(PHASE1_SIGNALS)
+        print(f"[Bootstrap-only] Loaded {len(sig_existing):,} signals "
+              f"from {PHASE1_SIGNALS}.")
+        boot = bootstrap_signals(sig_existing, n_boot=args.bootstrap_n)
+        boot["drug_a_name"] = boot["drug_a"].map(lambda x: dbid_to_name.get(x, x))
+        boot["drug_b_name"] = boot["drug_b"].map(lambda x: dbid_to_name.get(x, x))
+        boot_path = RESULTS_DIR / "phase1_bootstrap_signals.csv"
+        boot.to_csv(boot_path, index=False)
+        print(f"  Bootstrap signals saved to {boot_path}")
+        plot_bootstrap_comparison(
+            boot, dbid_to_name,
+            RESULTS_DIR / "phase1_bootstrap_comparison.png"
+        )
+        print("  Bootstrap comparison chart saved.")
+        return
+
     if run_all or args.phase == 1:
-        signals, labeled = run_phase1(lookup, dbid_to_name)
+        signals, labeled = run_phase1(
+            lookup, dbid_to_name,
+            run_bootstrap=args.bootstrap,
+            n_boot=args.bootstrap_n,
+        )
         labeled.to_csv(RESULTS_DIR / "phase1_labeled_pairs.csv", index=False)
 
     if run_all or args.phase >= 2:
