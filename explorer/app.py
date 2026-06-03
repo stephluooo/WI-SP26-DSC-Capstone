@@ -14,10 +14,9 @@ import ui
 
 ui.page_setup("Overview", icon="💊")
 
-st.title("💊 Drug–Drug Interaction Explorer")
+st.title("Drug–Drug Interaction Explorer")
 st.caption(
-    "Interactive exploration of FAERS disproportionality signals and the "
-    "structure-based DDI model from the Plan C study."
+    "Interactive exploration of a structure-based Drug-Drug-Interaction model."
 )
 
 ui.require_db()
