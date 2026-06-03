@@ -7,3 +7,5 @@ results/eda_hfcs/
 results/hfcs_analysis/
 results/cnn_regression/
 results/xgboost_regression/
+results/ddi_study/ddi.db
+explorer/__pycache__/
