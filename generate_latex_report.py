@@ -4,6 +4,7 @@ Generate a NeurIPS 2026 LaTeX paper from results/ddi_study/.
 Usage:
     python generate_latex_report.py            # default: reports/neurips/
     python generate_latex_report.py --out my_paper/
+    python generate_latex_report.py --skip-pair-count   # faster when phase1_signals is huge
 
 Setup (one-time):
     1. Run this script.
@@ -75,28 +76,54 @@ def read_csv_rows(path):
         return list(csv.DictReader(f))
 
 
-def read_top_signals(path, n=10, sort_col="ror"):
-    """Read only the top-N rows of a very large signals CSV by sort_col (desc)."""
+def read_top_signals(path, n=10, sort_col="ror", chunk_size=250_000):
+    """Top-N rows by sort_col without loading the full CSV (safe for ~10M rows)."""
     if not path.exists():
         return []
     try:
         import pandas as pd
     except ImportError:
-        return read_csv_rows(path)[:n]
-    # nlargest is much faster than loading and sorting the full frame
-    df = pd.read_csv(path)
-    if sort_col in df.columns:
-        df = df.nlargest(n, sort_col)
-    else:
-        df = df.head(n)
-    return df.astype(str).to_dict(orient="records")
+        print("WARNING: install pandas for large phase1_signals.csv; "
+              "top signals table will be empty.", flush=True)
+        return []
+    best = None
+    chunks = 0
+    for chunk in pd.read_csv(path, chunksize=chunk_size):
+        chunks += 1
+        if sort_col not in chunk.columns:
+            continue
+        part = chunk.nlargest(n, sort_col)
+        if best is None:
+            best = part
+        else:
+            best = pd.concat([best, part], ignore_index=True).nlargest(n, sort_col)
+        if chunks % 5 == 0:
+            print(f"  ... scanned {chunks * chunk_size:,} rows of phase1_signals.csv", flush=True)
+    if best is None:
+        return []
+    return best.astype(str).to_dict(orient="records")
 
 
-def count_pairs_in_signals(path):
-    """Stream the signals CSV to count unique (drug_a, drug_b) pairs without
-    loading the whole thing into memory."""
+def count_pairs_in_signals(path, chunk_size=500_000):
+    """Approximate-unique (drug_a, drug_b) via chunked read — avoids loading full CSV."""
     if not path.exists():
         return 0
+    try:
+        import pandas as pd
+    except ImportError:
+        return _count_pairs_streaming_csv(path)
+    pairs = set()
+    chunks = 0
+    for chunk in pd.read_csv(path, usecols=["drug_a", "drug_b"], chunksize=chunk_size):
+        chunks += 1
+        pairs.update(zip(chunk["drug_a"], chunk["drug_b"]))
+        if chunks % 5 == 0:
+            print(f"  ... unique-pair scan: {chunks * chunk_size:,} rows, "
+                  f"{len(pairs):,} pairs so far", flush=True)
+    return len(pairs)
+
+
+def _count_pairs_streaming_csv(path):
     seen = set()
     with open(path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -106,10 +133,14 @@ def count_pairs_in_signals(path):
 
 
 def count_signals(path):
+    """Count data lines (excluding header) without loading into memory."""
     if not path.exists():
         return 0
-    with open(path, "r", encoding="utf-8") as f:
-        return sum(1 for _ in f) - 1  # minus header
+    n = 0
+    with open(path, "rb") as f:
+        for buf in iter(lambda: f.read(8 * 1024 * 1024), b""):
+            n += buf.count(b"\n")
+    return max(0, n - 1)
 
 
 def read_phase2_stats(path):
@@ -162,7 +193,7 @@ def big_sci(n):
 def build_signals_table(signals, name_map, n=10):
     rows = signals[:n]  # signals are already top-N pre-sorted
     lines = []
-    lines.append(r"\begin{table}[t]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\caption{Top 10 ROR signals by absolute ROR. Drug names "
                  r"resolved via DrugBank.}")
@@ -190,7 +221,7 @@ def build_bootstrap_table(boot_rows, name_map, n=10):
         return r"\textit{Bootstrap output not present. Run \texttt{python ddi\_study.py --bootstrap} to generate.}"
     rows = boot_rows[:n]  # already pre-sorted by ror_bootstrap_p025
     lines = []
-    lines.append(r"\begin{table}[t]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\caption{Top 10 ROR signals re-ranked by the bootstrap 2.5\% lower bound "
                  r"(B=500 Poisson resamples). Note the smaller $a$ counts present in the "
@@ -219,7 +250,7 @@ def build_metrics_table(metrics):
     if not metrics:
         return ""
     lines = []
-    lines.append(r"\begin{table}[t]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\caption{Per-fold performance under 5-fold stratified cross-validation.}")
     lines.append(r"\label{tab:metrics}")
@@ -264,7 +295,7 @@ def build_validation_table(rows):
     if not rows:
         return ""
     lines = []
-    lines.append(r"\begin{table}[t]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\caption{Precision@k for top novel predictions validated against "
                  r"1,458,020 known DrugBank DDI pairs.}")
@@ -289,7 +320,7 @@ def build_predictions_table(rows, n=10):
         return ""
     top = rows[:n]
     lines = []
-    lines.append(r"\begin{table}[t]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\caption{Top 10 predicted novel DDIs.}")
     lines.append(r"\label{tab:novel}")
@@ -310,12 +341,11 @@ def build_predictions_table(rows, n=10):
 
 def build_figure(filename, caption, label, width=r"\linewidth"):
     return (
-        r"\begin{figure}[t]" + "\n"
-        r"\centering" + "\n"
+        r"\begin{center}" + "\n"
         rf"\includegraphics[width={width}]{{figures/{filename}}}" + "\n"
-        rf"\caption{{{caption}}}" + "\n"
+        rf"\captionof{{figure}}{{{caption}}}" + "\n"
         rf"\label{{{label}}}" + "\n"
-        r"\end{figure}"
+        r"\end{center}"
     )
 
 
@@ -417,6 +447,7 @@ TEX_TEMPLATE = r"""\documentclass{article}
 \usepackage{caption}
 \usepackage{multirow}
 \usepackage{array}
+\usepackage{float}
 
 \title{Predicting Novel Drug-Drug Interactions from Molecular Structure and Adverse Event Reports}
 
@@ -474,7 +505,7 @@ Clinical trials typically evaluate drugs in isolation; combinations are tested o
 
 For each (drug pair, reaction) we build a $2\!\times\!2$ contingency table (Table~\ref{tab:contingency}) and compute the Reporting Odds Ratio with its $95\%$ Wald confidence interval. Following standard pharmacovigilance practice~\cite{vanpuijenbroek2002ror} we retain signals with $a\geq 3$, $b\geq 3$, $\mathrm{ROR}>2$, and $\mathrm{CI}_{\text{low}}>1.5$.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Contingency table for a single (drug pair, reaction).}
 \label{tab:contingency}
@@ -494,23 +525,21 @@ __SIGNALS_TABLE__
 
 __BOOTSTRAP_TABLE__
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=\linewidth]{figures/phase1_overview.png}
-\caption{Distribution of significant ROR signals (left) and top 20 adverse reactions by signal count (right). Both axes are log-scaled with linear-number tick labels.}
+\captionof{figure}{Distribution of significant ROR signals (left) and top 20 adverse reactions by signal count (right). Both axes are log-scaled with linear-number tick labels.}
 \label{fig:phase1_overview}
-\end{figure}
+\end{center}
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \IfFileExists{figures/phase1_bootstrap_comparison.png}{%
   \includegraphics[width=\linewidth]{figures/phase1_bootstrap_comparison.png}%
 }{%
   \fbox{\parbox{0.9\linewidth}{\centering Bootstrap comparison chart not present. Run \texttt{python ddi\_study.py --bootstrap}.}}
 }
-\caption{Top 20 by absolute ROR vs. top 20 by bootstrap 2.5\% lower bound. The bootstrap-stable ranking eliminates signals with $a\!=\!3$ that inflate the absolute list.}
+\captionof{figure}{Top 20 by absolute ROR vs. top 20 by bootstrap 2.5\% lower bound. The bootstrap-stable ranking eliminates signals with $a\!=\!3$ that inflate the absolute list.}
 \label{fig:bootstrap}
-\end{figure}
+\end{center}
 
 \section{Phase 2: Molecular Fingerprints}\label{sec:phase2}
 For each DrugBank ID that appears in a labeled pair we retrieve its SMILES from DrugBank's SDF file and compute the 1{,}024-bit ECFP4 fingerprint via RDKit~\cite{rogers2010ecfp}. Of __FP_TOTAL__ DrugBank IDs, __FP_OK__ were successfully fingerprinted; __FP_NOSMILES__ lacked SMILES (predominantly biologics) and __FP_PARSEFAIL__ failed RDKit parsing. After filtering, __N_LABELED_USABLE__ labeled pairs remain for Phase~3.
@@ -521,12 +550,11 @@ For each DrugBank ID that appears in a labeled pair we retrieve its SMILES from 
 
 __METRICS_TABLE__
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.62\linewidth]{figures/phase3_roc_curve.png}
-\caption{ROC curves for all five CV folds. Mean AUC = __MEAN_AUC__ ($\pm$__STD_AUC__).}
+\captionof{figure}{ROC curves for all five CV folds. Mean AUC = __MEAN_AUC__ ($\pm$__STD_AUC__).}
 \label{fig:roc}
-\end{figure}
+\end{center}
 
 \section{Phase 4: Novel Predictions}\label{sec:phase4}
 
@@ -534,23 +562,21 @@ We apply the trained model to drug pairs never observed together in FAERS, after
 
 __PREDICTIONS_TABLE__
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.92\linewidth]{figures/phase4_top20_predictions.png}
-\caption{Top 20 predicted novel DDIs plotted on a $(1-p)$ log scale so near-1 probabilities are visually distinguishable.}
+\captionof{figure}{Top 20 predicted novel DDIs plotted on a $(1-p)$ log scale so near-1 probabilities are visually distinguishable.}
 \label{fig:top20}
-\end{figure}
+\end{center}
 
 \subsection{Validation against DrugBank}
 
 __VALIDATION_TABLE__
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.55\linewidth]{figures/phase4_precision_at_k.png}
-\caption{Precision@k against DrugBank's 1{,}458{,}020 known DDI pairs.}
+\captionof{figure}{Precision@k against DrugBank's 1{,}458{,}020 known DDI pairs.}
 \label{fig:patk}
-\end{figure}
+\end{center}
 
 \section{Discussion}\label{sec:discussion}
 
@@ -585,6 +611,9 @@ def main():
                         help="Output directory (default: reports/neurips/)")
     parser.add_argument("--results", default=str(RESULTS),
                         help="Results directory (default: results/ddi_study/)")
+    parser.add_argument("--skip-pair-count", action="store_true",
+                        help="Skip counting unique drug pairs in phase1_signals.csv "
+                             "(still slow on ~9M rows). Abstract will use 192,886.")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -593,10 +622,16 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
+    sig_path = results_dir / "phase1_signals.csv"
+    if sig_path.exists():
+        size_mb = sig_path.stat().st_size / (1024 * 1024)
+        print(f"[generate_latex_report] phase1_signals.csv is {size_mb:.0f} MB — "
+              f"first run can take several minutes (chunked scan).", flush=True)
+
     # Load data. phase1_signals.csv has ~9M rows so we read only the top 10
     # and compute aggregate stats with streaming counters.
-    signals = read_top_signals(results_dir / "phase1_signals.csv", n=10,
-                               sort_col="ror")
+    print("[generate_latex_report] Top ROR rows (+ bootstrap if present) ...", flush=True)
+    signals = read_top_signals(sig_path, n=10, sort_col="ror")
     boot = read_top_signals(results_dir / "phase1_bootstrap_signals.csv", n=10,
                             sort_col="ror_bootstrap_p025")
     metrics = read_csv_rows(results_dir / "phase3_metrics.csv")
@@ -606,9 +641,17 @@ def main():
     p2_stats = read_phase2_stats(results_dir / "phase2_mapping_stats.txt")
     match_details = read_csv_rows(results_dir / "phase2_match_details.csv")
 
-    # Derived stats: count from disk to avoid loading 9M rows into memory.
-    n_signals = count_signals(results_dir / "phase1_signals.csv")
-    n_pairs = count_pairs_in_signals(results_dir / "phase1_signals.csv")
+    # Derived stats: count from disk without loading full CSV into RAM.
+    print("[generate_latex_report] Counting signal rows ...", flush=True)
+    n_signals = count_signals(sig_path)
+    if args.skip_pair_count:
+        print("[generate_latex_report] Skipping unique pair count (--skip-pair-count).",
+              flush=True)
+        n_pairs = 0
+    else:
+        print("[generate_latex_report] Counting unique drug pairs (chunked) ...",
+              flush=True)
+        n_pairs = count_pairs_in_signals(sig_path)
     mean_auc = std_auc = 0.0
     if metrics:
         aucs = [float(r["auc"]) for r in metrics]
@@ -685,6 +728,8 @@ def main():
     readme = (
         "NeurIPS 2026 LaTeX paper\n"
         "========================\n\n"
+        "generate_latex_report.py can take several minutes on a huge phase1_signals.csv\n"
+        "(chunked reads). Use --skip-pair-count to skip the unique-pair scan.\n\n"
         "1. Download the official NeurIPS 2026 template from:\n"
         "   https://www.overleaf.com/latex/templates/formatting-instructions-for-neurips-2026/\n"
         "2. Copy `neurips_2026.sty` into this directory (next to main.tex).\n"
@@ -697,10 +742,11 @@ def main():
     )
     (out_dir / "README.txt").write_text(readme, encoding="utf-8")
 
-    print(f"Wrote {out_dir / 'main.tex'}")
-    print(f"Wrote {out_dir / 'references.bib'}")
-    print(f"Copied {len(copied)} figures into {figures_dir}")
-    print(f"Setup notes: {out_dir / 'README.txt'}")
+    print(f"[generate_latex_report] Done. Wrote {out_dir / 'main.tex'}", flush=True)
+    print(f"[generate_latex_report] Wrote {out_dir / 'references.bib'}", flush=True)
+    print(f"[generate_latex_report] Copied {len(copied)} figures into {figures_dir}",
+          flush=True)
+    print(f"[generate_latex_report] Setup notes: {out_dir / 'README.txt'}", flush=True)
     if not boot:
         print("\nNOTE: phase1_bootstrap_signals.csv not found. Re-run\n"
               "      python ddi_study.py --bootstrap\n"

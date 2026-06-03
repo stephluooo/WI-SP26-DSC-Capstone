@@ -22,6 +22,7 @@
 \usepackage{caption}
 \usepackage{multirow}
 \usepackage{array}
+\usepackage{float}
 
 \title{Predicting Novel Drug-Drug Interactions from Molecular Structure and Adverse Event Reports}
 
@@ -45,9 +46,9 @@ analysis with conservative filters identifies 8,962,225 statistically
 significant (pair, reaction) signals across 192,886 drug pairs. We additionally
 report a Poisson-bootstrap re-ranking that demotes low-incidence outliers. A
 4-layer DNN trained on concatenated ECFP4 fingerprints achieves AUC
-0.8511 ($\pm$0.0021) under 5-fold stratified cross-validation.
+0.8512 ($\pm$0.0009) under 5-fold stratified cross-validation.
 Validation of the top-500 novel predictions against 1.46M known DrugBank DDIs
-yields 23.4\% precision -- 117 of the model's novel candidates are
+yields 27.8\% precision -- 117 of the model's novel candidates are
 already documented, providing independent evidence of pharmacological signal, with
 the remaining 383 representing potential undocumented interactions.
 \end{abstract}
@@ -79,7 +80,7 @@ Clinical trials typically evaluate drugs in isolation; combinations are tested o
 
 For each (drug pair, reaction) we build a $2\!\times\!2$ contingency table (Table~\ref{tab:contingency}) and compute the Reporting Odds Ratio with its $95\%$ Wald confidence interval. Following standard pharmacovigilance practice~\cite{vanpuijenbroek2002ror} we retain signals with $a\geq 3$, $b\geq 3$, $\mathrm{ROR}>2$, and $\mathrm{CI}_{\text{low}}>1.5$.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Contingency table for a single (drug pair, reaction).}
 \label{tab:contingency}
@@ -93,7 +94,7 @@ Pair absent & $c$ & $d$ \\
 \end{tabular}
 \end{table}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Top 10 ROR signals by absolute ROR. Drug names resolved via DrugBank.}
 \label{tab:top_signals}
@@ -118,25 +119,44 @@ Theophylline & Sulfaguanidine & amyloid arthropathy & 10.91M & 38 \\
 
 \paragraph{Bootstrap re-ranking.} Absolute ROR favours signals with very small $a$ and $c$. We Poisson-resample each cell of every retained signal $B{=}500$ times and report the median plus the $[2.5\%,\,97.5\%]$ interval (Table~\ref{tab:bootstrap_signals}). Ranking by the lower bound removes nearly all $a\!=\!3$ outliers from the top of the list.
 
-\textit{Bootstrap output not present. Run \texttt{python ddi\_study.py --bootstrap} to generate.}
-
-\begin{figure}[t]
+\begin{table}[H]
 \centering
+\caption{Top 10 ROR signals re-ranked by the bootstrap 2.5\% lower bound (B=500 Poisson resamples). Note the smaller $a$ counts present in the absolute ranking are largely absent here.}
+\label{tab:bootstrap_signals}
+\small
+\begin{tabular}{llp{3.5cm}rrr}
+\toprule
+Drug A & Drug B & Reaction & ROR (abs.) & ROR$_{2.5\%}$ & $a$ \\
+\midrule
+Tadalafil & Ambroxol & fractional exhaled nitric oxide increased & 16.08M & 5.42M & 112 \\
+Ursodeoxycholic acid & DB06612 & cftr gene mutation & 22.97M & 5.07M & 20 \\
+DB00930 & Rivaroxaban & fractional exhaled nitric oxide increased & 12.06M & 4.71M & 112 \\
+Amoxicillin & DB19282 & amyloid arthropathy & 14.55M & 4.48M & 38 \\
+Clopidogrel & Ambroxol & fractional exhaled nitric oxide increased & 9.65M & 4.11M & 112 \\
+Formoterol & Dimenhydrinate & cftr gene mutation & 17.23M & 4.09M & 20 \\
+Olmesartan & Umeclidinium & right atrial hypertrophy & 10.59M & 4.04M & 83 \\
+Biotin & Ambroxol & fractional exhaled nitric oxide increased & 10.62M & 3.76M & 111 \\
+Rivaroxaban & Ambroxol & fractional exhaled nitric oxide increased & 8.04M & 3.72M & 112 \\
+DB00930 & Ibuprofen & fractional exhaled nitric oxide increased & 8.50M & 3.58M & 111 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{center}
 \includegraphics[width=\linewidth]{figures/phase1_overview.png}
-\caption{Distribution of significant ROR signals (left) and top 20 adverse reactions by signal count (right). Both axes are log-scaled with linear-number tick labels.}
+\captionof{figure}{Distribution of significant ROR signals (left) and top 20 adverse reactions by signal count (right). Both axes are log-scaled with linear-number tick labels.}
 \label{fig:phase1_overview}
-\end{figure}
+\end{center}
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \IfFileExists{figures/phase1_bootstrap_comparison.png}{%
   \includegraphics[width=\linewidth]{figures/phase1_bootstrap_comparison.png}%
 }{%
   \fbox{\parbox{0.9\linewidth}{\centering Bootstrap comparison chart not present. Run \texttt{python ddi\_study.py --bootstrap}.}}
 }
-\caption{Top 20 by absolute ROR vs. top 20 by bootstrap 2.5\% lower bound. The bootstrap-stable ranking eliminates signals with $a\!=\!3$ that inflate the absolute list.}
+\captionof{figure}{Top 20 by absolute ROR vs. top 20 by bootstrap 2.5\% lower bound. The bootstrap-stable ranking eliminates signals with $a\!=\!3$ that inflate the absolute list.}
 \label{fig:bootstrap}
-\end{figure}
+\end{center}
 
 \section{Phase 2: Molecular Fingerprints}\label{sec:phase2}
 For each DrugBank ID that appears in a labeled pair we retrieve its SMILES from DrugBank's SDF file and compute the 1{,}024-bit ECFP4 fingerprint via RDKit~\cite{rogers2010ecfp}. Of 5771 DrugBank IDs, 4099 were successfully fingerprinted; 1670 lacked SMILES (predominantly biologics) and 2 failed RDKit parsing. After filtering, 320,917 labeled pairs remain for Phase~3.
@@ -145,7 +165,7 @@ For each DrugBank ID that appears in a labeled pair we retrieve its SMILES from 
 
 \paragraph{Architecture and training.} For each labeled pair we concatenate the two ECFP4 fingerprints (sorted by DrugBank ID) into a 2{,}048-dimensional input and feed it into a 4-layer DNN: $2048\!\to\!512\!\to\!256\!\to\!128\!\to\!1$ with batch normalization, ReLU activations, and 30\% dropout in each hidden block. Loss is class-weighted BCEWithLogits; optimizer is Adam~\cite{kingma2014adam} (lr $10^{-3}$, weight decay $10^{-5}$). We use 5-fold stratified cross-validation with early stopping on validation AUC (patience 5, max 50 epochs, batch size 256).
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Per-fold performance under 5-fold stratified cross-validation.}
 \label{tab:metrics}
@@ -153,29 +173,28 @@ For each DrugBank ID that appears in a labeled pair we retrieve its SMILES from 
 \toprule
 Fold & AUC & Accuracy & Precision & Recall & F1 \\
 \midrule
-1 & 0.8534 & 0.7739 & 0.6784 & 0.7557 & 0.7150 \\
-2 & 0.8523 & 0.7728 & 0.6799 & 0.7455 & 0.7112 \\
-3 & 0.8472 & 0.7727 & 0.6844 & 0.7317 & 0.7073 \\
-4 & 0.8509 & 0.7743 & 0.6818 & 0.7475 & 0.7131 \\
-5 & 0.8517 & 0.7762 & 0.6869 & 0.7416 & 0.7132 \\
+1 & 0.8516 & 0.7794 & 0.7033 & 0.7130 & 0.7081 \\
+2 & 0.8508 & 0.7734 & 0.6785 & 0.7528 & 0.7137 \\
+3 & 0.8501 & 0.7694 & 0.6707 & 0.7572 & 0.7114 \\
+4 & 0.8508 & 0.7748 & 0.6821 & 0.7489 & 0.7139 \\
+5 & 0.8526 & 0.7791 & 0.6969 & 0.7278 & 0.7120 \\
 \midrule
-\textbf{Mean} & \textbf{0.8511} & \textbf{0.7740} & \textbf{0.6823} & \textbf{0.7444} & \textbf{0.7119} \\
+\textbf{Mean} & \textbf{0.8512} & \textbf{0.7752} & \textbf{0.6863} & \textbf{0.7399} & \textbf{0.7118} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.62\linewidth]{figures/phase3_roc_curve.png}
-\caption{ROC curves for all five CV folds. Mean AUC = 0.8511 ($\pm$0.0021).}
+\captionof{figure}{ROC curves for all five CV folds. Mean AUC = 0.8512 ($\pm$0.0009).}
 \label{fig:roc}
-\end{figure}
+\end{center}
 
 \section{Phase 4: Novel Predictions}\label{sec:phase4}
 
 We apply the trained model to drug pairs never observed together in FAERS, after restricting to drugs that appear in $\geq 50$ training pairs (the \emph{minimum exposure filter}). 1,840 drugs are eligible, yielding 1,393,018 scored unseen pairs; a streaming min-heap retains the top 500. All retained predictions have probability $> 0.983$.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Top 10 predicted novel DDIs.}
 \label{tab:novel}
@@ -183,30 +202,29 @@ We apply the trained model to drug pairs never observed together in FAERS, after
 \toprule
 Drug A & Drug B & Probability \\
 \midrule
-Ramipril & Eszopiclone & 0.9996 \\
-Alfentanil & Atorvastatin & 0.9994 \\
-Hydrotalcite & Bufexamac & 0.9993 \\
-Hydrotalcite & Chloramphenicol palmitate & 0.9991 \\
-Etravirine & Pemigatinib & 0.9988 \\
-Hydrotalcite & Distigmine & 0.9983 \\
-Sodium carbonate & Bufexamac & 0.9981 \\
-Dexibuprofen & 1,2-Benzodiazepine & 0.9980 \\
-Lamotrigine & Esculin & 0.9979 \\
-Sodium carbonate & Chloramphenicol palmitate & 0.9977 \\
+Dexibuprofen & Fluticasone & 0.9993 \\
+Cyclobenzaprine & Gliclazide & 0.9990 \\
+Oxetorone & Fluticasone & 0.9989 \\
+Zolpidem & Cilazapril & 0.9987 \\
+Ramipril & Eszopiclone & 0.9987 \\
+Cyanocobalamin & Efinaconazole & 0.9986 \\
+Cilazapril & Apixaban & 0.9985 \\
+Dexibuprofen & 1,2-Benzodiazepine & 0.9984 \\
+Fimasartan & Fluticasone & 0.9982 \\
+Alprazolam & Triflupromazine & 0.9981 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.92\linewidth]{figures/phase4_top20_predictions.png}
-\caption{Top 20 predicted novel DDIs plotted on a $(1-p)$ log scale so near-1 probabilities are visually distinguishable.}
+\captionof{figure}{Top 20 predicted novel DDIs plotted on a $(1-p)$ log scale so near-1 probabilities are visually distinguishable.}
 \label{fig:top20}
-\end{figure}
+\end{center}
 
 \subsection{Validation against DrugBank}
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Precision@k for top novel predictions validated against 1,458,020 known DrugBank DDI pairs.}
 \label{tab:validation}
@@ -214,22 +232,21 @@ Sodium carbonate & Chloramphenicol palmitate & 0.9977 \\
 \toprule
 Top-$k$ & Hits & Precision \\
 \midrule
-10 & 2 & 20.0\% \\
-25 & 8 & 32.0\% \\
-50 & 13 & 26.0\% \\
-100 & 23 & 23.0\% \\
-200 & 48 & 24.0\% \\
-500 & 117 & 23.4\% \\
+10 & 3 & 30.0\% \\
+25 & 9 & 36.0\% \\
+50 & 21 & 42.0\% \\
+100 & 31 & 31.0\% \\
+200 & 58 & 29.0\% \\
+500 & 139 & 27.8\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
-\centering
+\begin{center}
 \includegraphics[width=0.55\linewidth]{figures/phase4_precision_at_k.png}
-\caption{Precision@k against DrugBank's 1{,}458{,}020 known DDI pairs.}
+\captionof{figure}{Precision@k against DrugBank's 1{,}458{,}020 known DDI pairs.}
 \label{fig:patk}
-\end{figure}
+\end{center}
 
 \section{Discussion}\label{sec:discussion}
 
@@ -249,7 +266,7 @@ Top-$k$ & Hits & Precision \\
 \end{itemize}
 
 \section{Conclusion}\label{sec:conclusion}
-A pipeline combining FAERS-based disproportionality analysis with structure-based deep learning achieves AUC 0.8511 on cross-validation and rediscovers $\sim$23\% of known DDIs from FAERS+structure alone. The 383 novel candidates represent prioritized leads for further pharmacovigilance review.
+A pipeline combining FAERS-based disproportionality analysis with structure-based deep learning achieves AUC 0.8512 on cross-validation and rediscovers $\sim$23\% of known DDIs from FAERS+structure alone. The 383 novel candidates represent prioritized leads for further pharmacovigilance review.
 
 \bibliographystyle{plain}
 \bibliography{references}
